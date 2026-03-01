@@ -72,6 +72,9 @@ const PARTNER_EMAIL = String(config.partnerEmail || "").trim();
 let remoteSyncEnabled = SYNC_MODE !== "local";
 let hasWarnedRemoteUnavailable = false;
 
+const DEFAULT_SERVICE_PAUSE_MESSAGE =
+  "Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır. Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.";
+
 const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Bugün de kalbim seninle aynı ritimde atıyor. 💓",
   "Birlikte olduğumuz her gün, en sevdiğim gün oluyor. 🌸",
@@ -138,6 +141,10 @@ const servicePauseBanner = document.getElementById("servicePauseBanner");
 const servicePauseMessage = document.getElementById("servicePauseMessage");
 const toggleServicePauseBtn = document.getElementById("toggleServicePauseBtn");
 const servicePauseAdminInfo = document.getElementById("servicePauseAdminInfo");
+const servicePauseMessageForm = document.getElementById("servicePauseMessageForm");
+const servicePauseMessageInput = document.getElementById("servicePauseMessageInput");
+const servicePauseMessageResetBtn = document.getElementById("servicePauseMessageResetBtn");
+const servicePauseMessageInfo = document.getElementById("servicePauseMessageInfo");
 const stormScene = document.getElementById("stormScene");
 const stormRain = document.getElementById("stormRain");
 const stormFlash = document.getElementById("stormFlash");
@@ -724,7 +731,14 @@ function saveServicePause() {
 function getServicePauseMessage() {
   const customReason = String(state.servicePause?.reason || "").trim();
   if (customReason) return customReason;
-  return "Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır. Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.";
+  return DEFAULT_SERVICE_PAUSE_MESSAGE;
+}
+
+function renderServicePauseEditor() {
+  if (!servicePauseMessageInput) return;
+
+  const customReason = String(state.servicePause?.reason || "").trim();
+  servicePauseMessageInput.value = customReason || DEFAULT_SERVICE_PAUSE_MESSAGE;
 }
 
 function ensureStormRain() {
@@ -812,6 +826,8 @@ function renderServicePauseUI() {
       ? "Sinirli mod aktif: Partner ekranı kısıtlı erişim ekranına geçti."
       : "Sinirli mod kapalı: Partner normal şekilde talep oluşturabilir.";
   }
+
+  renderServicePauseEditor();
 }
 
 function playLoveBurst() {
@@ -1485,7 +1501,7 @@ if (toggleServicePauseBtn) {
 
     state.servicePause = {
       active: nextActive,
-      reason: "",
+      reason: String(state.servicePause?.reason || "").trim(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -1499,6 +1515,59 @@ if (toggleServicePauseBtn) {
         ? "Sinirli mod aktif edildi: talep oluşturma geçici olarak kapatıldı."
         : "Sinirli mod kapatıldı: talep oluşturma yeniden açıldı."
     );
+  });
+}
+
+if (servicePauseMessageForm) {
+  servicePauseMessageForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await syncBeforeMutation();
+
+    const nextMessage = String(servicePauseMessageInput?.value || "").trim();
+    if (!nextMessage) {
+      if (servicePauseMessageInfo) {
+        servicePauseMessageInfo.textContent = "Mesaj boş olamaz. Varsayılan için sıfırla butonunu kullan.";
+      }
+      return;
+    }
+
+    state.servicePause = {
+      ...(state.servicePause || {}),
+      reason: nextMessage === DEFAULT_SERVICE_PAUSE_MESSAGE ? "" : nextMessage,
+      updatedAt: new Date().toISOString(),
+      active: Boolean(state.servicePause?.active),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    if (servicePauseMessageInfo) {
+      servicePauseMessageInfo.textContent = "Sinirli mod mesajı güncellendi.";
+    }
+    addActivity("admin", "Sinirli mod mesajı güncellendi.");
+  });
+}
+
+if (servicePauseMessageResetBtn) {
+  servicePauseMessageResetBtn.addEventListener("click", async () => {
+    await syncBeforeMutation();
+
+    state.servicePause = {
+      ...(state.servicePause || {}),
+      reason: "",
+      updatedAt: new Date().toISOString(),
+      active: Boolean(state.servicePause?.active),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    if (servicePauseMessageInfo) {
+      servicePauseMessageInfo.textContent = "Sinirli mod mesajı varsayılan metne döndürüldü.";
+    }
+    addActivity("admin", "Sinirli mod mesajı varsayılan metne döndürüldü.");
   });
 }
 

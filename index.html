@@ -219,6 +219,23 @@
               <button id="toggleServicePauseBtn" class="btn-danger" type="button">Sinirli Modu Aç</button>
             </div>
             <p id="servicePauseAdminInfo" class="muted" aria-live="polite"></p>
+
+            <form id="servicePauseMessageForm" class="admin-form">
+              <label>
+                Sinirli Mod Özel Mesajı
+                <textarea
+                  id="servicePauseMessageInput"
+                  name="servicePauseMessage"
+                  rows="4"
+                  placeholder="Sinirli mod ekranında gösterilecek metni yaz..."
+                ></textarea>
+              </label>
+              <div class="admin-actions">
+                <button id="servicePauseMessageSaveBtn" class="btn-primary" type="submit">Mesajı Güncelle</button>
+                <button id="servicePauseMessageResetBtn" class="btn-ghost" type="button">Varsayılan Metne Dön</button>
+              </div>
+              <p id="servicePauseMessageInfo" class="muted" aria-live="polite"></p>
+            </form>
           </article>
 
           <article class="card notify-send-card">
