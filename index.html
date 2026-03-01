@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kalp Postası • Talep Merkezi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="is-locked">
+    <section id="siteGate" class="site-gate" aria-label="Site giriş şifresi">
+      <article class="gate-card">
+        <p class="eyebrow">🔒 Sadece İkimize Özel</p>
+        <h1>Kalp Postası</h1>
+        <img id="gateHeroImage" class="gate-hero" src="assets/hero-envelope.png" alt="Kalp mektubu görseli" />
+        <p class="muted">
+          Küçük mutluluklarımızı birlikte planladığımız özel alanımıza hoş geldin.
+        </p>
+        <form id="siteLoginForm" class="gate-form">
+          <label>
+            Kullanıcı Adı
+            <input
+              type="text"
+              name="siteUsername"
+              placeholder="Kullanıcı adın"
+              autocomplete="username"
+              required
+            />
+          </label>
+          <label>
+            Site Şifresi
+            <input
+              type="password"
+              name="sitePassword"
+              placeholder="Giriş şifresi"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button class="btn-primary" type="submit">Özel Alana Gir</button>
+        </form>
+        <p id="siteLoginInfo" class="muted" aria-live="polite"></p>
+      </article>
+    </section>
+
+    <main id="appShell" class="app-shell" aria-hidden="true">
+      <header class="topbar card">
+        <div class="brand-wrap">
+          <div class="brand-logo-frame">
+            <img id="brandLogoImage" class="brand-logo" src="assets/logo-kalp-isleri.png" alt="Kalp İşleri Müdürlüğü logosu" />
+          </div>
+          <div>
+            <p class="eyebrow">💌 Kalp Postası</p>
+          <h1>Birlikte Güzel Anlar Planlayalım</h1>
+          <p class="muted">Kalbinden geçen her isteği bırak, sevgiyle takip edelim.</p>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button id="notificationBell" class="notif-bell" type="button" aria-label="Talep bildirimleri">
+            <span class="notif-icon">💖</span>
+            <span id="notificationCount" class="notif-count hidden">0</span>
+          </button>
+          <p id="bellInfo" class="muted bell-info" aria-live="polite"></p>
+          <nav class="tabs" aria-label="Sayfalar">
+            <button class="tab-btn active" data-tab="create">Talep Oluştur</button>
+            <button class="tab-btn" data-tab="track">Talep Takip</button>
+            <button class="tab-btn" data-tab="admin" id="adminTabBtn">Kalp Sorumlusu 💘</button>
+          </nav>
+          <button id="siteLogoutBtn" class="btn-ghost" type="button">Siteyi Kilitle</button>
+        </div>
+      </header>
+
+      <section class="panel active" id="create">
+        <article class="card">
+          <h2>Kalbinden Geçeni Yaz</h2>
+          <p class="muted">Ne hissettiğini yaz, ben de özenle değerlendirip dönüş yapayım.</p>
+
+          <article class="daily-love-card" aria-live="polite">
+            <p class="eyebrow">✨ Günün Mesajı</p>
+            <p id="dailyLoveMessage" class="daily-love-text"></p>
+          </article>
+
+          <form id="requestForm" class="form-grid">
+            <label>
+              Talep Başlığı
+              <input name="title" placeholder="Örn: Gün batımında sahil yürüyüşü" required />
+            </label>
+
+            <label>
+              Kategori
+              <select name="category" required>
+                <option value="">Seçiniz</option>
+                <option>Romantik</option>
+                <option>Gezi</option>
+                <option>Sürpriz</option>
+                <option>Destek</option>
+                <option>Diğer</option>
+              </select>
+            </label>
+
+            <label>
+              Öncelik
+              <select name="priority" required>
+                <option value="">Seçiniz</option>
+                <option>Normal</option>
+                <option>Yüksek</option>
+                <option>Çok Acil</option>
+              </select>
+            </label>
+
+            <label>
+              İstenen Tarih
+              <input name="targetDate" type="date" required />
+            </label>
+
+            <label class="full">
+              Talep Detayı
+              <textarea
+                name="detail"
+                rows="5"
+                placeholder="Hayalini kısa ve net şekilde yaz..."
+                required
+              ></textarea>
+            </label>
+
+            <div class="full action-row">
+              <button type="submit" class="btn-primary">Talebi Sevgiyle Gönder</button>
+              <p id="formInfo" class="muted" aria-live="polite"></p>
+            </div>
+          </form>
+        </article>
+      </section>
+
+      <section class="panel" id="track">
+        <article class="card">
+          <h2>Talep Takip</h2>
+          <p class="muted">Durumu ve bıraktığım notları buradan kalp rahatlığıyla takip et.</p>
+          <div id="trackNotifications" class="stack"></div>
+          <div id="trackList" class="stack"></div>
+
+          <article class="love-calendar-card">
+            <h3>💗 Aşk Takvimi</h3>
+            <p class="muted">Yaklaşan planlarımızı kalp kalp görelim.</p>
+            <div id="loveCalendar" class="love-calendar-grid"></div>
+          </article>
+        </article>
+      </section>
+
+      <section class="panel" id="admin">
+        <article id="adminGate" class="card login-card">
+          <h2>Kalp Sorumlusu Girişi</h2>
+          <p class="muted">Bu alan yalnızca sana özel yönetim ekranıdır.</p>
+          <form id="adminLoginForm" class="inline-form">
+            <input
+              type="password"
+              name="password"
+              placeholder="Kalp Sorumlusu şifresi"
+              autocomplete="current-password"
+              required
+            />
+            <button class="btn-primary" type="submit">Giriş Yap</button>
+          </form>
+          <p id="loginInfo" class="muted" aria-live="polite"></p>
+        </article>
+
+        <div id="adminContent" class="hidden">
+          <article class="card admin-toolbar">
+            <p><strong>Kalp Sorumlusu oturumu açık</strong> <span id="partnerPresence" class="presence-badge offline">Sevgilin çevrimdışı</span></p>
+            <p>
+              <strong>Mail Gönderim Durumu:</strong>
+              <span id="mailStatusBadge" class="presence-badge offline">Kontrol ediliyor</span>
+            </p>
+            <p id="mailStatusHint" class="muted"></p>
+            <button id="logoutBtn" class="btn-ghost">Kalp Sorumlusu Çıkışı</button>
+          </article>
+
+          <article class="card">
+            <h2>🕰️ Partner Aktivite Zaman Çizgisi</h2>
+            <div id="activityTimeline" class="activity-timeline"></div>
+          </article>
+
+          <article class="card">
+            <h2>🔐 Giriş Log Kayıtları</h2>
+            <p class="muted">Partner ve Kalp Sorumlusu giriş/çıkış kayıtları burada saklanır.</p>
+            <div id="loginLogs" class="activity-timeline"></div>
+          </article>
+
+          <article class="card">
+            <h2>📝 Günün Mesajı Ayarları</h2>
+            <p class="muted">Her satıra bir romantik söz yaz. Kaydettiğinde günlük mesajlar bu listeden döner.</p>
+            <form id="dailyMessageForm" class="admin-form">
+              <label>
+                Günlük Mesaj Listesi (satır satır)
+                <textarea id="dailyMessageInput" name="dailyMessages" rows="6" required></textarea>
+              </label>
+              <div class="admin-actions">
+                <button class="btn-primary" type="submit">Mesajları Kaydet 💞</button>
+                <button id="dailyMessageResetBtn" class="btn-ghost" type="button">Varsayılan Sözlere Dön</button>
+              </div>
+              <p id="dailyMessageInfo" class="muted" aria-live="polite"></p>
+            </form>
+          </article>
+
+          <article class="card notify-send-card">
+            <h2>Sevgiline Bildirim Gönder</h2>
+            <p class="muted">Kalpte anında görünecek kısa bir not bırak.</p>
+            <form id="sendNotificationForm" class="admin-form">
+              <label>
+                Bildirim Başlığı
+                <input name="notifyTitle" placeholder="Örn: Aşk notu" required />
+              </label>
+              <label>
+                Bildirim Mesajı
+                <textarea name="notifyMessage" rows="3" required></textarea>
+              </label>
+              <button class="btn-primary" type="submit">Bildirimi Gönder 💖</button>
+              <p id="sendNotificationInfo" class="muted" aria-live="polite"></p>
+            </form>
+          </article>
+
+          <article class="card">
+            <h2>Gelen Talepler</h2>
+            <div id="adminList" class="stack"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <template id="trackNotificationTemplate">
+      <article class="notify-card">
+        <p data-field="notifyText"></p>
+        <button class="btn-ghost" data-role="seenBtn" type="button">Gördüm 💗</button>
+      </article>
+    </template>
+
+    <template id="trackItemTemplate">
+      <article class="request-card">
+        <div class="request-head">
+          <h3 data-field="title"></h3>
+          <span class="badge" data-field="status"></span>
+        </div>
+        <p class="meta" data-field="meta"></p>
+        <p class="content" data-field="detail"></p>
+        <div class="result-box">
+          <h4>Sonuç</h4>
+          <p data-field="result"></p>
+        </div>
+      </article>
+    </template>
+
+    <template id="adminItemTemplate">
+      <article class="request-card">
+        <div class="request-head">
+          <h3 data-field="title"></h3>
+          <span class="badge" data-field="status"></span>
+        </div>
+        <p class="meta" data-field="meta"></p>
+        <p class="content" data-field="detail"></p>
+
+        <form class="admin-form" data-role="updateForm">
+          <label>
+            Durum
+            <select name="status" required>
+              <option value="Beklemede">Beklemede</option>
+              <option value="İnceleniyor">İnceleniyor</option>
+              <option value="Kabul Edildi">Kabul Edildi</option>
+              <option value="Reddedildi">Reddedildi</option>
+              <option value="Tamamlandı">Tamamlandı</option>
+            </select>
+          </label>
+          <label>
+            Sonuç Notu
+            <textarea name="result" rows="3" required></textarea>
+          </label>
+          <div class="admin-actions">
+            <button class="btn-primary" type="submit">Güncelle</button>
+            <button class="btn-ghost" type="button" data-role="notifyBtn">Bildirim Hazırla</button>
+            <button class="btn-ghost" type="button" data-role="mailBtn">Mail Gönder 💌</button>
+            <button class="btn-danger" type="button" data-role="deleteBtn">Talebi Sil</button>
+          </div>
+          <p class="muted" data-role="notifyInfo"></p>
+        </form>
+      </article>
+    </template>
+
+    <div id="loveBurstLayer" class="love-burst-layer" aria-hidden="true"></div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

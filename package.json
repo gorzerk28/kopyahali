@@ -1,0 +1,13 @@
+{
+  "name": "kalp-postasi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kalp Postasi request tracker",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check app.js && node --check config.js && node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
