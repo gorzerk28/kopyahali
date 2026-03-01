@@ -218,7 +218,11 @@ function sendJson(req, res, status, payload) {
 
 function serveStatic(req, res, pathname) {
   const safePath = pathname === "/" ? "/index.html" : pathname;
-  const fullPath = path.join(ROOT, path.normalize(safePath));
+  const normalizedRelativePath = path
+    .normalize(safePath)
+    .replace(/^([/\\])+/, "")
+    .replace(/^(\.\.(?:[/\\]|$))+/, "");
+  const fullPath = path.join(ROOT, normalizedRelativePath);
 
   if (!fullPath.startsWith(ROOT)) {
     res.writeHead(403);
