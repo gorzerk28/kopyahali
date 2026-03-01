@@ -238,7 +238,10 @@ function serveStatic(req, res, pathname) {
     }
 
     const ext = path.extname(fullPath).toLowerCase();
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[ext] || "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
     res.end(data);
   });
 }
