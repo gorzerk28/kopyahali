@@ -86,11 +86,9 @@
           </article>
 
           <article id="servicePauseBanner" class="service-pause-card hidden" aria-live="polite">
-            <p class="eyebrow">💔 Kalp Servisi Geçici Olarak Molada</p>
-            <h3>Kalp Sorumlusu şu an sinirli / kalbi kırık modunda</h3>
+            <p class="eyebrow">⚠️ Erişim Durumu : Kısıtlı</p>
+            <h3>Sinirli Mod etkin: talep arayüzü geçici olarak kapatıldı</h3>
             <p id="servicePauseMessage" class="service-pause-text"></p>
-            <p class="muted">🫶 Küçük bir barışma hamlesi, tatlı bir sarılma ve bolca özürle sistem tekrar açılabilir.</p>
-            <div class="service-pause-emoji" aria-hidden="true">🙈💐🍫💌🧸</div>
           </article>
 
           <form id="requestForm" class="form-grid">
@@ -247,6 +245,21 @@
         </div>
       </section>
     </main>
+
+
+    <section id="stormScene" class="storm-scene hidden" aria-live="polite" aria-label="Sinirli mod ekranı">
+      <div class="storm-rain" id="stormRain" aria-hidden="true"></div>
+      <div class="storm-flash" id="stormFlash" aria-hidden="true"></div>
+      <article class="storm-message card">
+        <p class="eyebrow">⚠️ Erişim Durumu : Kısıtlı</p>
+        <h2>Sinirli Mod Aktif</h2>
+        <p>
+          Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır.
+          Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı
+          bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.
+        </p>
+      </article>
+    </section>
 
     <template id="trackNotificationTemplate">
       <article class="notify-card">

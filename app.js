@@ -94,6 +94,8 @@ const state = {
 };
 
 const adminDrafts = new Map();
+let stormFlashTimer = null;
+let stormRainInitialized = false;
 
 const body = document.body;
 const appShell = document.getElementById("appShell");
@@ -136,6 +138,9 @@ const servicePauseBanner = document.getElementById("servicePauseBanner");
 const servicePauseMessage = document.getElementById("servicePauseMessage");
 const toggleServicePauseBtn = document.getElementById("toggleServicePauseBtn");
 const servicePauseAdminInfo = document.getElementById("servicePauseAdminInfo");
+const stormScene = document.getElementById("stormScene");
+const stormRain = document.getElementById("stormRain");
+const stormFlash = document.getElementById("stormFlash");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -719,15 +724,80 @@ function saveServicePause() {
 function getServicePauseMessage() {
   const customReason = String(state.servicePause?.reason || "").trim();
   if (customReason) return customReason;
-  return "Şu an kalp sorumlusu sinirli veya kalbi kırık durumda. Sinirinden korktuğumuz için geçici olarak talep alamıyoruz. Lütfen hızlıca gönlünü alıp sistemi yeniden romantik moda döndür 💞";
+  return "Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır. Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.";
+}
+
+function ensureStormRain() {
+  if (!stormRain || stormRainInitialized) return;
+  const dropCount = 100;
+
+  for (let i = 0; i < dropCount; i += 1) {
+    const drop = document.createElement("span");
+    drop.className = "rain-drop";
+    drop.style.left = `${Math.random() * 100}%`;
+    drop.style.animationDelay = `${Math.random() * 1.8}s`;
+    drop.style.animationDuration = `${0.55 + Math.random() * 0.8}s`;
+    stormRain.appendChild(drop);
+  }
+
+  stormRainInitialized = true;
+}
+
+function startStormFlash() {
+  if (!stormFlash || stormFlashTimer) return;
+
+  const loop = () => {
+    if (!document.body.classList.contains("is-storm-mode")) {
+      stormFlash.classList.remove("active");
+      stormFlashTimer = null;
+      return;
+    }
+
+    const wait = 1600 + Math.random() * 3200;
+    stormFlashTimer = setTimeout(() => {
+      stormFlash.classList.add("active");
+      setTimeout(() => stormFlash.classList.remove("active"), 140);
+      loop();
+    }, wait);
+  };
+
+  loop();
+}
+
+function stopStormFlash() {
+  if (stormFlashTimer) {
+    clearTimeout(stormFlashTimer);
+    stormFlashTimer = null;
+  }
+
+  if (stormFlash) {
+    stormFlash.classList.remove("active");
+  }
 }
 
 function renderServicePauseUI() {
   if (!servicePauseBanner || !requestForm) return;
 
   const isPaused = Boolean(state.servicePause?.active);
+  const loginActor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
+  const isPartnerView = loginActor === "Sevgilin";
+  const enableStormMode = isPaused && isPartnerView;
+
   requestForm.classList.toggle("hidden", isPaused);
   servicePauseBanner.classList.toggle("hidden", !isPaused);
+
+  document.body.classList.toggle("is-storm-mode", enableStormMode);
+  if (stormScene) {
+    stormScene.classList.toggle("hidden", !enableStormMode);
+  }
+
+  if (enableStormMode) {
+    ensureStormRain();
+    startStormFlash();
+    activateTab("create");
+  } else {
+    stopStormFlash();
+  }
 
   if (servicePauseMessage) {
     servicePauseMessage.textContent = getServicePauseMessage();
@@ -739,7 +809,7 @@ function renderServicePauseUI() {
 
   if (servicePauseAdminInfo) {
     servicePauseAdminInfo.textContent = isPaused
-      ? "Sinirli mod aktif: Partner girişinde talep formu yerine barış mesajı ekranı gösteriliyor."
+      ? "Sinirli mod aktif: Partner ekranı kısıtlı erişim ekranına geçti."
       : "Sinirli mod kapalı: Partner normal şekilde talep oluşturabilir.";
   }
 }
@@ -829,6 +899,7 @@ function setSiteSession(isActive) {
   appShell.setAttribute("aria-hidden", String(!isActive));
   updatePresenceHeartbeat();
   renderPresenceBadge();
+  renderServicePauseUI();
 }
 
 function activateTab(tabId) {
