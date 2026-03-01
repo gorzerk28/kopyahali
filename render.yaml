@@ -3,8 +3,8 @@ services:
     name: kopyahali
     env: node
     plan: free
-    buildCommand: npm install && npm run check
-    startCommand: npm start
+    buildCommand: node --check app.js && node --check config.js && node --check server.js
+    startCommand: node server.js
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
