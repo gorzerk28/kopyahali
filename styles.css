@@ -432,6 +432,35 @@ textarea {
   margin-bottom: 12px;
 }
 
+.service-toggle-card {
+  margin-bottom: 12px;
+}
+
+.service-pause-card {
+  margin-top: 14px;
+  border: 1px solid #ffd4e4;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(135deg, #fff0f6, #fff8fc);
+  display: grid;
+  gap: 8px;
+}
+
+.service-pause-card h3 {
+  font-size: 1.05rem;
+  color: #8d2d5c;
+}
+
+.service-pause-text {
+  color: #5b2f45;
+  font-weight: 600;
+}
+
+.service-pause-emoji {
+  font-size: 1.35rem;
+  letter-spacing: 3px;
+}
+
 .admin-form {
   margin-top: 6px;
   display: grid;

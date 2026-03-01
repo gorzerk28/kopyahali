@@ -8,6 +8,7 @@ const LOGIN_LOGS_KEY = "kalp-postasi-login-logs";
 const DAILY_MESSAGES_KEY = "kalp-postasi-daily-messages";
 const OWNER_DEVICE_KEY = "kalp-postasi-owner-device";
 const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
+const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 
 const config = window.APP_CONFIG || {};
 const FALLBACK_SITE_PASSWORD = "iremhasekisultan";
@@ -88,6 +89,7 @@ const state = {
   loginLogs: loadLoginLogs(),
   dailyMessages: loadDailyMessages(),
   partnerPresence: loadPartnerPresence(),
+  servicePause: loadServicePause(),
   failedSiteAttempts: 0,
 };
 
@@ -130,6 +132,10 @@ const dailyMessageInfo = document.getElementById("dailyMessageInfo");
 const dailyMessageResetBtn = document.getElementById("dailyMessageResetBtn");
 const mailStatusBadge = document.getElementById("mailStatusBadge");
 const mailStatusHint = document.getElementById("mailStatusHint");
+const servicePauseBanner = document.getElementById("servicePauseBanner");
+const servicePauseMessage = document.getElementById("servicePauseMessage");
+const toggleServicePauseBtn = document.getElementById("toggleServicePauseBtn");
+const servicePauseAdminInfo = document.getElementById("servicePauseAdminInfo");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -388,6 +394,7 @@ function getSerializableState(options = {}) {
     loginLogs: state.loginLogs,
     dailyMessages: state.dailyMessages,
     partnerPresence: state.partnerPresence,
+    servicePause: state.servicePause,
   };
 
   if (Array.isArray(deletedRequestIds) && deletedRequestIds.length) {
@@ -423,6 +430,13 @@ function applyRemoteState(remote) {
   state.partnerPresence = remote.partnerPresence && typeof remote.partnerPresence === "object"
     ? remote.partnerPresence
     : state.partnerPresence;
+  state.servicePause = remote.servicePause && typeof remote.servicePause === "object"
+    ? {
+        active: Boolean(remote.servicePause.active),
+        reason: String(remote.servicePause.reason || "").trim(),
+        updatedAt: remote.servicePause.updatedAt || null,
+      }
+    : state.servicePause;
 
   suppressRemotePush = true;
   saveRequests();
@@ -431,6 +445,7 @@ function applyRemoteState(remote) {
   saveLoginLogs();
   saveDailyMessages();
   savePartnerPresence();
+  saveServicePause();
   suppressRemotePush = false;
 
   renderTrackNotifications();
@@ -442,6 +457,7 @@ function applyRemoteState(remote) {
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderServicePauseUI();
 }
 
 let remotePushTimer = null;
@@ -677,6 +693,55 @@ function loadPartnerPresence() {
 
 function savePartnerPresence() {
   localStorage.setItem(PRESENCE_KEY, JSON.stringify(state.partnerPresence));
+}
+
+function loadServicePause() {
+  const raw = localStorage.getItem(SERVICE_PAUSE_KEY);
+  if (!raw) return { active: false, reason: "", updatedAt: null };
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      active: Boolean(parsed.active),
+      reason: String(parsed.reason || "").trim(),
+      updatedAt: parsed.updatedAt || null,
+    };
+  } catch {
+    return { active: false, reason: "", updatedAt: null };
+  }
+}
+
+function saveServicePause() {
+  localStorage.setItem(SERVICE_PAUSE_KEY, JSON.stringify(state.servicePause));
+  queueRemotePush();
+}
+
+function getServicePauseMessage() {
+  const customReason = String(state.servicePause?.reason || "").trim();
+  if (customReason) return customReason;
+  return "Şu an kalp sorumlusu sinirli veya kalbi kırık durumda. Sinirinden korktuğumuz için geçici olarak talep alamıyoruz. Lütfen hızlıca gönlünü alıp sistemi yeniden romantik moda döndür 💞";
+}
+
+function renderServicePauseUI() {
+  if (!servicePauseBanner || !requestForm) return;
+
+  const isPaused = Boolean(state.servicePause?.active);
+  requestForm.classList.toggle("hidden", isPaused);
+  servicePauseBanner.classList.toggle("hidden", !isPaused);
+
+  if (servicePauseMessage) {
+    servicePauseMessage.textContent = getServicePauseMessage();
+  }
+
+  if (toggleServicePauseBtn) {
+    toggleServicePauseBtn.textContent = isPaused ? "Sinirli Modu Kapat" : "Sinirli Modu Aç";
+  }
+
+  if (servicePauseAdminInfo) {
+    servicePauseAdminInfo.textContent = isPaused
+      ? "Sinirli mod aktif: Partner girişinde talep formu yerine barış mesajı ekranı gösteriliyor."
+      : "Sinirli mod kapalı: Partner normal şekilde talep oluşturabilir.";
+  }
 }
 
 function playLoveBurst() {
@@ -1341,6 +1406,31 @@ if (dailyMessageResetBtn) {
   });
 }
 
+if (toggleServicePauseBtn) {
+  toggleServicePauseBtn.addEventListener("click", async () => {
+    const nextActive = !Boolean(state.servicePause?.active);
+
+    await syncBeforeMutation();
+
+    state.servicePause = {
+      active: nextActive,
+      reason: "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    addActivity(
+      "admin",
+      nextActive
+        ? "Sinirli mod aktif edildi: talep oluşturma geçici olarak kapatıldı."
+        : "Sinirli mod kapatıldı: talep oluşturma yeniden açıldı."
+    );
+  });
+}
+
 if (!SITE_PASSWORD || !ADMIN_PASSWORD) {
   siteLoginInfo.textContent =
     "Şifre yapılandırması yüklenemedi. config.js kontrol et veya fallback şifreleri kullan.";
@@ -1348,6 +1438,7 @@ if (!SITE_PASSWORD || !ADMIN_PASSWORD) {
 
 renderDailyLoveMessage();
 renderDailyMessageEditor();
+renderServicePauseUI();
 renderTrackNotifications();
 renderTrackList();
 renderActivityTimeline();

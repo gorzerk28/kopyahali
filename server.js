@@ -36,6 +36,11 @@ function defaultState() {
       partnerOnline: false,
       updatedAt: null,
     },
+    servicePause: {
+      active: false,
+      reason: "",
+      updatedAt: null,
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -67,6 +72,10 @@ function readState() {
         parsed.partnerPresence && typeof parsed.partnerPresence === "object"
           ? parsed.partnerPresence
           : { partnerOnline: false, updatedAt: null },
+      servicePause:
+        parsed.servicePause && typeof parsed.servicePause === "object"
+          ? parsed.servicePause
+          : { active: false, reason: "", updatedAt: null },
     };
   } catch {
     return defaultState();
@@ -95,6 +104,14 @@ function writeState(next) {
       next.partnerPresence && typeof next.partnerPresence === "object"
         ? next.partnerPresence
         : { partnerOnline: false, updatedAt: null },
+    servicePause:
+      next.servicePause && typeof next.servicePause === "object"
+        ? {
+            active: Boolean(next.servicePause.active),
+            reason: String(next.servicePause.reason || "").trim(),
+            updatedAt: next.servicePause.updatedAt || new Date().toISOString(),
+          }
+        : { active: false, reason: "", updatedAt: null },
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(STATE_FILE, JSON.stringify(safe, null, 2));

@@ -85,6 +85,14 @@
             <p id="dailyLoveMessage" class="daily-love-text"></p>
           </article>
 
+          <article id="servicePauseBanner" class="service-pause-card hidden" aria-live="polite">
+            <p class="eyebrow">💔 Kalp Servisi Geçici Olarak Molada</p>
+            <h3>Kalp Sorumlusu şu an sinirli / kalbi kırık modunda</h3>
+            <p id="servicePauseMessage" class="service-pause-text"></p>
+            <p class="muted">🫶 Küçük bir barışma hamlesi, tatlı bir sarılma ve bolca özürle sistem tekrar açılabilir.</p>
+            <div class="service-pause-emoji" aria-hidden="true">🙈💐🍫💌🧸</div>
+          </article>
+
           <form id="requestForm" class="form-grid">
             <label>
               Talep Başlığı
@@ -204,6 +212,15 @@
               </div>
               <p id="dailyMessageInfo" class="muted" aria-live="polite"></p>
             </form>
+          </article>
+
+          <article class="card service-toggle-card">
+            <h2>🚦 Kalp Servis Modu</h2>
+            <p class="muted">Kavga anlarında talep oluşturmayı geçici olarak durdurup, esprili bir uyarı ekranı gösterebilirsin.</p>
+            <div class="admin-actions">
+              <button id="toggleServicePauseBtn" class="btn-danger" type="button">Sinirli Modu Aç</button>
+            </div>
+            <p id="servicePauseAdminInfo" class="muted" aria-live="polite"></p>
           </article>
 
           <article class="card notify-send-card">
