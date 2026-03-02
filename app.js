@@ -517,9 +517,9 @@ function applyRemoteState(remote) {
     if (backup.length > state.requests.length) {
       state.requests = mergeRequestsPreferLatest(state.requests, backup);
     }
-  } else {
-    state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
   }
+
+  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -1614,7 +1614,17 @@ function renderAdminList() {
 async function restoreRequestsFromBackup() {
   const backup = loadRequestsBackup();
   if (!backup.length) {
-    return { ok: false, message: "Yerel yedekte talep bulunamadı." };
+    await pullRemoteState();
+    if (state.requests.length) {
+      return {
+        ok: true,
+        message: "Yerel yedek boştu ama talepler sunucudan yenilenip geri getirildi.",
+      };
+    }
+    return {
+      ok: false,
+      message: "Yerel yedekte talep bulunamadı. Bu cihazda yedek yoksa önce 'Talep Yenile' ile sunucudan çekmeyi dene.",
+    };
   }
 
   const beforeCount = state.requests.length;
