@@ -10,6 +10,8 @@ const STATE_FILE = path.join(DATA_DIR, "shared-state.json");
 const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -298,17 +300,60 @@ async function sendEmail(payload) {
   return { ok: true, status: 200 };
 }
 
+async function sendTelegram(payload) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return {
+      ok: false,
+      status: 501,
+      error: "Telegram provider not configured",
+      hint: "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Render environment.",
+    };
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      chat_id: TELEGRAM_CHAT_ID,
+      text: payload.text,
+      disable_web_page_preview: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return {
+      ok: false,
+      status: 502,
+      error: "Failed to send telegram message",
+      details: errorText,
+    };
+  }
+
+  return { ok: true, status: 200 };
+}
+
 function getNotifyStatus() {
-  const missing = [];
-  if (EMAIL_PROVIDER !== "resend") missing.push("EMAIL_PROVIDER=resend");
-  if (!RESEND_API_KEY) missing.push("RESEND_API_KEY");
-  if (!EMAIL_FROM) missing.push("EMAIL_FROM");
+  const emailMissing = [];
+  if (EMAIL_PROVIDER !== "resend") emailMissing.push("EMAIL_PROVIDER=resend");
+  if (!RESEND_API_KEY) emailMissing.push("RESEND_API_KEY");
+  if (!EMAIL_FROM) emailMissing.push("EMAIL_FROM");
+
+  const telegramMissing = [];
+  if (!TELEGRAM_BOT_TOKEN) telegramMissing.push("TELEGRAM_BOT_TOKEN");
+  if (!TELEGRAM_CHAT_ID) telegramMissing.push("TELEGRAM_CHAT_ID");
 
   return {
-    ready: missing.length === 0,
+    ready: emailMissing.length === 0,
     provider: EMAIL_PROVIDER || "not-set",
     from: EMAIL_FROM || "not-set",
-    missing,
+    missing: emailMissing,
+    telegram: {
+      ready: telegramMissing.length === 0,
+      missing: telegramMissing,
+    },
   };
 }
 
@@ -357,16 +402,37 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
 
-      if (payload.channel !== "email" || !payload.to || !payload.subject || !payload.text) {
-        return sendJson(req, res, 400, {
-          ok: false,
-          error: "Invalid payload",
-          expected: "{ channel: 'email', to, subject, text }",
-        });
+      if (payload.channel === "email") {
+        if (!payload.to || !payload.subject || !payload.text) {
+          return sendJson(req, res, 400, {
+            ok: false,
+            error: "Invalid payload",
+            expected: "{ channel: 'email', to, subject, text }",
+          });
+        }
+
+        const result = await sendEmail(payload);
+        return sendJson(req, res, result.status, result);
       }
 
-      const result = await sendEmail(payload);
-      return sendJson(req, res, result.status, result);
+      if (payload.channel === "telegram") {
+        if (!payload.text) {
+          return sendJson(req, res, 400, {
+            ok: false,
+            error: "Invalid payload",
+            expected: "{ channel: 'telegram', text }",
+          });
+        }
+
+        const result = await sendTelegram(payload);
+        return sendJson(req, res, result.status, result);
+      }
+
+      return sendJson(req, res, 400, {
+        ok: false,
+        error: "Unsupported channel",
+        expected: "channel must be 'email' or 'telegram'",
+      });
     } catch {
       return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
     }

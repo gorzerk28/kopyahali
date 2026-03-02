@@ -1229,6 +1229,43 @@ async function sendEmailNotification(item, status, result) {
   }
 }
 
+function buildOwnerTelegramText(request) {
+  return [
+    "📩 Yeni Talep Oluşturuldu",
+    `Başlık: ${request.title}`,
+    `Kategori: ${request.category}`,
+    `Öncelik: ${request.priority}`,
+    `Tarih: ${request.targetDate || "Belirtilmedi"}`,
+    "",
+    `Detay: ${request.detail || "Detay yok"}`,
+  ].join("\n");
+}
+
+async function notifyOwnerOnNewRequest(request) {
+  try {
+    const response = await fetch(NOTIFY_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({
+        channel: "telegram",
+        text: buildOwnerTelegramText(request),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      console.warn("Telegram bildirimi gönderilemedi:", payload.error || response.status);
+      return { ok: false, message: payload.hint || payload.error || "Telegram bildirimi başarısız." };
+    }
+
+    return { ok: true, message: "Telegram bildirimi gönderildi." };
+  } catch (error) {
+    console.warn("Telegram bildirimi hatası:", error);
+    return { ok: false, message: "Telegram servisine bağlanılamadı." };
+  }
+}
+
 function createAdminCard(item) {
   const template = document.getElementById("adminItemTemplate");
   const node = template.content.firstElementChild.cloneNode(true);
@@ -1412,6 +1449,10 @@ requestForm.addEventListener("submit", async (event) => {
   formInfo.textContent = "Talebin başarıyla gönderildi! Talep Takip sekmesinden durumu izleyebilirsin.";
 
   addActivity("partner", `Yeni talep oluşturuldu: ${request.title}`);
+  const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
+  if (!ownerNotifyResult.ok) {
+    bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
+  }
 
   renderTrackNotifications();
   renderTrackList();
