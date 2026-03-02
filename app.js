@@ -978,6 +978,7 @@ function loadCustomNotifications() {
     return parsed.map((item) => ({
       ...item,
       read: item.read ?? false,
+      target: item.target === "admin" ? "admin" : "partner",
     }));
   } catch {
     return [];
@@ -1119,7 +1120,13 @@ siteLogoutBtn.addEventListener("click", async () => {
   activateTab("create");
 });
 
+function getCurrentSessionActor() {
+  return String(sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) || "");
+}
+
 function getUnreadRequestNotifications() {
+  if (getCurrentSessionActor() !== "Sevgilin") return [];
+
   return state.requests
     .filter((item) => !item.partnerNotified && item.updatedAt !== item.createdAt)
     .map((item) => ({
@@ -1131,8 +1138,11 @@ function getUnreadRequestNotifications() {
 }
 
 function getUnreadCustomNotifications() {
+  const actor = getCurrentSessionActor();
+  const target = actor === "Kalp Sorumlusu" ? "admin" : "partner";
+
   return state.customNotifications
-    .filter((item) => !item.read)
+    .filter((item) => !item.read && item.target === target)
     .map((item) => ({
       type: "custom",
       id: item.id,
@@ -1181,7 +1191,20 @@ function createTrackNotification(item) {
       const target = state.customNotifications.find((notif) => notif.id === item.id);
       if (!target) return;
 
+      const actor = getCurrentSessionActor();
       target.read = true;
+
+      if (actor === "Sevgilin" && target.target === "partner") {
+        state.customNotifications.push({
+          id: `n-seen-${Date.now().toString(36)}`,
+          title: "Bildirim Görüldü",
+          message: `Sevgilin "${target.title}" bildirimini gördü.`,
+          read: false,
+          target: "admin",
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       saveCustomNotifications();
     }
 
@@ -1600,6 +1623,7 @@ sendNotificationForm.addEventListener("submit", async (event) => {
     title,
     message,
     read: false,
+    target: "partner",
     createdAt: new Date().toISOString(),
   };
 
