@@ -15,6 +15,12 @@ const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
+const AUTH_SECRET = String(process.env.AUTH_SECRET || "dev-only-change-this-secret").trim();
+const SITE_USERNAME = String(process.env.SITE_USERNAME || "güzel kızım").trim().toLocaleLowerCase("tr-TR");
+const SITE_PASSWORD = String(process.env.SITE_PASSWORD || "").trim();
+const OWNER_USERNAME = String(process.env.OWNER_USERNAME || "kalpsorumlusu").trim().toLocaleLowerCase("tr-TR");
+const OWNER_SITE_PASSWORD = String(process.env.OWNER_SITE_PASSWORD || "").trim();
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "").trim();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -336,13 +342,14 @@ function writePresence(nextPresence) {
   });
 }
 
-function sendJson(req, res, status, payload) {
+function sendJson(req, res, status, payload, extraHeaders = {}) {
   const origin = req.headers.origin;
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Cache-Control": "no-store",
+    ...extraHeaders,
   };
 
   if (origin) {
@@ -353,6 +360,67 @@ function sendJson(req, res, status, payload) {
 
   res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
+}
+
+function parseCookies(req) {
+  const raw = String(req.headers.cookie || "");
+  if (!raw) return {};
+  return raw.split(";").reduce((acc, part) => {
+    const [k, ...v] = part.trim().split("=");
+    if (!k) return acc;
+    acc[k] = decodeURIComponent(v.join("="));
+    return acc;
+  }, {});
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(input).toString("base64url");
+}
+
+function base64UrlDecode(input) {
+  return Buffer.from(input, "base64url").toString("utf8");
+}
+
+function signToken(payload) {
+  const crypto = require("crypto");
+  const body = base64UrlEncode(JSON.stringify(payload));
+  const sig = crypto.createHmac("sha256", AUTH_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  const crypto = require("crypto");
+  const [body, sig] = token.split(".");
+  const expected = crypto.createHmac("sha256", AUTH_SECRET).update(body).digest("base64url");
+  if (sig !== expected) return null;
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(body));
+    if (!payload || typeof payload !== "object") return null;
+    if (!payload.exp || Date.now() > Number(payload.exp)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function buildCookie(name, value, maxAgeSec = 60 * 60 * 12) {
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+}
+
+function buildExpiredCookie(name) {
+  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+function getSiteAuth(req) {
+  const cookies = parseCookies(req);
+  return verifyToken(cookies.kalp_site_session || "");
+}
+
+function getAdminAuth(req) {
+  const cookies = parseCookies(req);
+  return verifyToken(cookies.kalp_admin_session || "");
 }
 
 function serveStatic(req, res, pathname) {
@@ -512,11 +580,97 @@ const server = http.createServer(async (req, res) => {
     return sendJson(req, res, 204, {});
   }
 
+  if (url.pathname === "/api/auth/status" && req.method === "GET") {
+    const siteAuth = getSiteAuth(req);
+    const adminAuth = getAdminAuth(req);
+    return sendJson(req, res, 200, {
+      siteAuthenticated: Boolean(siteAuth),
+      adminAuthenticated: Boolean(adminAuth),
+      actor: siteAuth?.actor || null,
+    });
+  }
+
+  if (url.pathname === "/api/auth/site-login" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const payload = raw ? JSON.parse(raw) : {};
+      const username = String(payload.username || "").trim().toLocaleLowerCase("tr-TR");
+      const password = String(payload.password || "").trim();
+
+      let actor = "";
+      if (SITE_PASSWORD && username === SITE_USERNAME && password === SITE_PASSWORD) {
+        actor = "Sevgilin";
+      } else if (
+        username === OWNER_USERNAME &&
+        ((OWNER_SITE_PASSWORD && password === OWNER_SITE_PASSWORD) || (ADMIN_PASSWORD && password === ADMIN_PASSWORD))
+      ) {
+        actor = "Kalp Sorumlusu";
+      }
+
+      if (!actor) {
+        return sendJson(req, res, 401, { ok: false, error: "Invalid credentials" });
+      }
+
+      const token = signToken({ actor, exp: Date.now() + 1000 * 60 * 60 * 12 });
+      return sendJson(
+        req,
+        res,
+        200,
+        { ok: true, actor },
+        { "Set-Cookie": [buildCookie("kalp_site_session", token)] }
+      );
+    } catch {
+      return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
+    }
+  }
+
+  if (url.pathname === "/api/auth/admin-login" && req.method === "POST") {
+    try {
+      const siteAuth = getSiteAuth(req);
+      if (!siteAuth || siteAuth.actor !== "Kalp Sorumlusu") {
+        return sendJson(req, res, 403, { ok: false, error: "Owner site session required" });
+      }
+
+      const raw = await readBody(req);
+      const payload = raw ? JSON.parse(raw) : {};
+      const password = String(payload.password || "").trim();
+      if (!ADMIN_PASSWORD || password !== ADMIN_PASSWORD) {
+        return sendJson(req, res, 401, { ok: false, error: "Invalid admin password" });
+      }
+
+      const token = signToken({ role: "admin", exp: Date.now() + 1000 * 60 * 60 * 12 });
+      return sendJson(
+        req,
+        res,
+        200,
+        { ok: true },
+        { "Set-Cookie": [buildCookie("kalp_admin_session", token)] }
+      );
+    } catch {
+      return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
+    }
+  }
+
+  if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+    return sendJson(
+      req,
+      res,
+      200,
+      { ok: true },
+      { "Set-Cookie": [buildExpiredCookie("kalp_site_session"), buildExpiredCookie("kalp_admin_session")] }
+    );
+  }
+
   if (url.pathname === "/api/state" && req.method === "GET") {
     return sendJson(req, res, 200, readState());
   }
 
   if (url.pathname === "/api/state" && req.method === "PUT") {
+    const siteAuth = getSiteAuth(req);
+    if (!siteAuth) {
+      return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
+    }
+
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
@@ -528,6 +682,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/presence" && req.method === "PUT") {
+    const siteAuth = getSiteAuth(req);
+    if (!siteAuth) {
+      return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
+    }
+
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
@@ -551,6 +710,10 @@ const server = http.createServer(async (req, res) => {
       const payload = raw ? JSON.parse(raw) : {};
 
       if (payload.channel === "email") {
+        const adminAuth = getAdminAuth(req);
+        if (!adminAuth) {
+          return sendJson(req, res, 401, { ok: false, error: "Admin authentication required" });
+        }
         if (!payload.to || !payload.subject || !payload.text) {
           return sendJson(req, res, 400, {
             ok: false,
@@ -564,6 +727,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (payload.channel === "telegram") {
+        const siteAuth = getSiteAuth(req);
+        if (!siteAuth) {
+          return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
+        }
+
         if (!payload.text) {
           return sendJson(req, res, 400, {
             ok: false,
