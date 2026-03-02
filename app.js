@@ -234,7 +234,7 @@ function renderLoveMilestone() {
       : now.getFullYear();
   const nextAnniversary = new Date(nextAnniversaryYear, startDate.getMonth(), startDate.getDate());
 
-  loveMilestoneSummary.textContent = `${formatDateShort(startDate)} tarihinden beri kalbimiz aynı ritimde. O günden beri bizde zaman biraz durdu gibi. 💞`;
+  loveMilestoneSummary.textContent = "20.03.2023 tarihinden beri kalbimiz aynı ritimde. O günden beri zaman durdu 💞";
   loveDayCount.textContent = String(togetherDays);
   loveYearMonth.textContent = `${Math.max(0, years)}y ${Math.max(0, months)}a`;
   loveNextAnniversary.textContent = formatDateShort(nextAnniversary);
