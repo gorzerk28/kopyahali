@@ -68,6 +68,8 @@ const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Seninle sıradan günler bile kutlama gibi geliyor. ✨",
 ];
 
+const RELATIONSHIP_START_DATE = "2023-03-20";
+
 const state = {
   requests: loadRequests(),
   customNotifications: loadCustomNotifications(),
@@ -116,6 +118,10 @@ const loveBurstLayer = document.getElementById("loveBurstLayer");
 const brandLogoImage = document.getElementById("brandLogoImage");
 const gateHeroImage = document.getElementById("gateHeroImage");
 const dailyLoveMessage = document.getElementById("dailyLoveMessage");
+const loveMilestoneSummary = document.getElementById("loveMilestoneSummary");
+const loveDayCount = document.getElementById("loveDayCount");
+const loveYearMonth = document.getElementById("loveYearMonth");
+const loveNextAnniversary = document.getElementById("loveNextAnniversary");
 const loveCalendar = document.getElementById("loveCalendar");
 const activityTimeline = document.getElementById("activityTimeline");
 const loginLogs = document.getElementById("loginLogs");
@@ -190,6 +196,48 @@ function renderDailyLoveMessage() {
 
   const index = getDayOfYear() % state.dailyMessages.length;
   dailyLoveMessage.textContent = state.dailyMessages[index];
+}
+
+function getRelationshipStartDate() {
+  const [year, month, day] = RELATIONSHIP_START_DATE.split("-").map((value) => Number(value));
+  return new Date(year, month - 1, day);
+}
+
+function formatDateShort(date) {
+  return date.toLocaleDateString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function renderLoveMilestone() {
+  if (!loveMilestoneSummary || !loveDayCount || !loveYearMonth || !loveNextAnniversary) return;
+
+  const startDate = getRelationshipStartDate();
+  const now = new Date();
+  const diffMs = now.getTime() - startDate.getTime();
+  const togetherDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1);
+
+  let years = now.getFullYear() - startDate.getFullYear();
+  let months = now.getMonth() - startDate.getMonth();
+  if (now.getDate() < startDate.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+
+  const nextAnniversaryYear =
+    now.getMonth() > startDate.getMonth() ||
+    (now.getMonth() === startDate.getMonth() && now.getDate() >= startDate.getDate())
+      ? now.getFullYear() + 1
+      : now.getFullYear();
+  const nextAnniversary = new Date(nextAnniversaryYear, startDate.getMonth(), startDate.getDate());
+
+  loveMilestoneSummary.textContent = `${formatDateShort(startDate)} tarihinden beri kalbimiz aynı ritimde. O günden beri bizde zaman biraz durdu gibi. 💞`;
+  loveDayCount.textContent = String(togetherDays);
+  loveYearMonth.textContent = `${Math.max(0, years)}y ${Math.max(0, months)}a`;
+  loveNextAnniversary.textContent = formatDateShort(nextAnniversary);
 }
 
 function loadActivityTimeline() {
@@ -1877,6 +1925,7 @@ if (servicePauseMessageResetBtn) {
 }
 
 renderDailyLoveMessage();
+renderLoveMilestone();
 renderDailyMessageEditor();
 renderServicePauseUI();
 renderTrackNotifications();
@@ -1910,3 +1959,4 @@ syncSessionsFromServer();
 
 setInterval(updatePresenceHeartbeat, 5000);
 setInterval(renderPresenceBadge, 5000);
+setInterval(renderLoveMilestone, 60 * 1000);

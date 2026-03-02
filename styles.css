@@ -514,6 +514,65 @@ textarea {
   color: #7d355b;
 }
 
+
+.love-milestone-card {
+  margin-top: 12px;
+  border: 1px solid #f0d4e5;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(135deg, #fff4fa, #fffdfd);
+  display: grid;
+  gap: 10px;
+}
+
+.love-milestone-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.love-infinity {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #943a67;
+  background: #ffeef7;
+  border: 1px solid #f7cfe3;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.love-milestone-summary {
+  color: #6f3c5b;
+  font-weight: 600;
+}
+
+.love-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.love-metric {
+  border: 1px dashed #efc7dc;
+  border-radius: 12px;
+  background: #fff8fc;
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.love-metric-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #9d2f67;
+}
+
+.love-metric small {
+  color: #8b6480;
+}
+
 .love-calendar-card {
   margin-top: 12px;
   border-top: 1px dashed var(--line);
