@@ -5,8 +5,10 @@ const { URL } = require("url");
 
 const PORT = Number(process.env.PORT || 8000);
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, "data");
-const STATE_FILE = path.join(DATA_DIR, "shared-state.json");
+const DEFAULT_DATA_DIR = fs.existsSync("/var/data") ? "/var/data" : path.join(ROOT, "data");
+const DATA_DIR = path.resolve(String(process.env.DATA_DIR || DEFAULT_DATA_DIR));
+const STATE_FILE = path.resolve(String(process.env.STATE_FILE || path.join(DATA_DIR, "shared-state.json")));
+const BACKUP_DIR = path.join(path.dirname(STATE_FILE), "state-backups");
 const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
@@ -47,11 +49,68 @@ function defaultState() {
   };
 }
 
-function ensureStateFile() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(STATE_FILE)) {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(defaultState(), null, 2));
+function ensureDataFolders() {
+  if (!fs.existsSync(path.dirname(STATE_FILE))) fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+function writeJsonAtomic(filePath, payload) {
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2));
+  fs.renameSync(tempPath, filePath);
+}
+
+function rotateBackups(limit = 45) {
+  const files = fs
+    .readdirSync(BACKUP_DIR)
+    .filter((name) => name.endsWith('.json'))
+    .sort();
+
+  if (files.length <= limit) return;
+  const deleteCount = files.length - limit;
+  files.slice(0, deleteCount).forEach((name) => {
+    fs.rmSync(path.join(BACKUP_DIR, name), { force: true });
+  });
+}
+
+function createStateBackup(rawJsonText) {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(BACKUP_DIR, `state-${stamp}.json`);
+    fs.writeFileSync(backupPath, rawJsonText);
+    rotateBackups();
+  } catch {
+    // yedek alınamazsa ana akışı durdurma
   }
+}
+
+function restoreLatestBackupIfAny() {
+  try {
+    const files = fs
+      .readdirSync(BACKUP_DIR)
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+
+    if (!files.length) return false;
+    const latest = files[files.length - 1];
+    const raw = fs.readFileSync(path.join(BACKUP_DIR, latest), 'utf8');
+    JSON.parse(raw);
+    writeJsonAtomic(STATE_FILE, JSON.parse(raw));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureStateFile() {
+  ensureDataFolders();
+  if (fs.existsSync(STATE_FILE)) return;
+
+  if (restoreLatestBackupIfAny()) {
+    return;
+  }
+
+  writeJsonAtomic(STATE_FILE, defaultState());
 }
 
 function readState() {
@@ -80,6 +139,34 @@ function readState() {
           : { active: false, reason: "", updatedAt: null },
     };
   } catch {
+    if (restoreLatestBackupIfAny()) {
+      try {
+        const raw = fs.readFileSync(STATE_FILE, "utf8");
+        const parsed = JSON.parse(raw);
+        return {
+          ...defaultState(),
+          ...parsed,
+          requests: Array.isArray(parsed.requests) ? parsed.requests : [],
+          deletedRequestIds: Array.isArray(parsed.deletedRequestIds)
+            ? parsed.deletedRequestIds.map((id) => String(id))
+            : [],
+          customNotifications: Array.isArray(parsed.customNotifications) ? parsed.customNotifications : [],
+          activityTimeline: Array.isArray(parsed.activityTimeline) ? parsed.activityTimeline : [],
+          loginLogs: Array.isArray(parsed.loginLogs) ? parsed.loginLogs : [],
+          dailyMessages: Array.isArray(parsed.dailyMessages) ? parsed.dailyMessages : [],
+          partnerPresence:
+            parsed.partnerPresence && typeof parsed.partnerPresence === "object"
+              ? parsed.partnerPresence
+              : { partnerOnline: false, updatedAt: null },
+          servicePause:
+            parsed.servicePause && typeof parsed.servicePause === "object"
+              ? parsed.servicePause
+              : { active: false, reason: "", updatedAt: null },
+        };
+      } catch {
+        return defaultState();
+      }
+    }
     return defaultState();
   }
 }
@@ -116,7 +203,9 @@ function writeState(next) {
         : { active: false, reason: "", updatedAt: null },
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(STATE_FILE, JSON.stringify(safe, null, 2));
+  const rawSafe = JSON.stringify(safe, null, 2);
+  writeJsonAtomic(STATE_FILE, safe);
+  createStateBackup(rawSafe);
   return safe;
 }
 
@@ -455,4 +544,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   ensureStateFile();
   console.log(`Kalp Postası server running on http://0.0.0.0:${PORT}`);
+  console.log(`State file: ${STATE_FILE}`);
 });

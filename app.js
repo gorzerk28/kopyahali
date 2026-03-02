@@ -1422,13 +1422,19 @@ sendNotificationForm.addEventListener("submit", async (event) => {
   playCelebrationBurst("soft");
 });
 
+function createRequestId() {
+  const timePart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 8);
+  return `r-${timePart}-${randomPart}`;
+}
+
 requestForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await syncBeforeMutation();
 
   const formData = new FormData(requestForm);
   const request = {
-    id: Date.now().toString().slice(-6),
+    id: createRequestId(),
     title: formData.get("title").toString().trim(),
     category: formData.get("category").toString(),
     priority: formData.get("priority").toString(),
