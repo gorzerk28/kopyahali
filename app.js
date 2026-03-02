@@ -524,6 +524,11 @@ async function syncSessionsFromServer() {
     }
 
     setAdminSession(Boolean(payload.adminAuthenticated));
+
+    if (payload.siteAuthenticated || payload.adminAuthenticated) {
+      await pullRemoteState();
+      renderServicePauseUI();
+    }
   } catch {
     csrfToken = "";
     setSiteSession(false);
@@ -1020,6 +1025,9 @@ siteLoginForm.addEventListener("submit", async (event) => {
     } else {
       addActivity("admin", "Kalp Sorumlusu site girişini yaptı.");
     }
+
+    await pullRemoteState();
+    renderServicePauseUI();
 
     addLoginLog(actor, "siteye giriş yaptı.");
     siteLoginInfo.textContent = "";
@@ -1756,7 +1764,16 @@ if (remoteSyncEnabled) {
     notifyRemoteUnavailable("static-host");
   } else {
     pullRemoteState();
-    setInterval(pullRemoteState, 7000);
+    setInterval(pullRemoteState, 2000);
+
+    window.addEventListener("focus", () => {
+      pullRemoteState();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        pullRemoteState();
+      }
+    });
   }
 }
 
