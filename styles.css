@@ -830,3 +830,148 @@ textarea {
     grid-column: auto;
   }
 }
+
+/* Premium visual refresh (easy rollback: remove this block) */
+:root {
+  --bg: #fdf7fb;
+  --card: rgba(255, 255, 255, 0.88);
+  --text: #261e2b;
+  --muted: #7a6678;
+  --line: rgba(214, 164, 193, 0.34);
+  --primary: #cf3f84;
+  --primary-dark: #ad2e6d;
+  --radius: 18px;
+  --shadow: 0 14px 34px rgba(136, 54, 99, 0.12);
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at -15% -10%, rgba(255, 218, 237, 0.66), transparent 58%),
+    radial-gradient(1000px 460px at 110% 10%, rgba(255, 228, 242, 0.58), transparent 60%),
+    linear-gradient(180deg, #fff9fc 0%, #fdf5fa 100%);
+}
+
+.app-shell {
+  max-width: 1120px;
+  gap: 18px;
+}
+
+.card {
+  border-color: var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+
+.topbar.card {
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 243, 250, 0.9));
+  border-color: rgba(214, 164, 193, 0.4);
+}
+
+h1 {
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  letter-spacing: -0.01em;
+}
+
+.tabs {
+  gap: 10px;
+}
+
+.tab-btn,
+.btn-primary,
+.btn-ghost,
+.btn-danger,
+.notif-bell {
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.tab-btn,
+.btn-primary,
+.btn-ghost,
+.btn-danger {
+  border-radius: 12px;
+}
+
+.tab-btn {
+  border-color: rgba(206, 117, 162, 0.35);
+  background: rgba(255, 246, 251, 0.72);
+}
+
+.tab-btn:hover,
+.btn-ghost:hover,
+.notif-bell:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(158, 71, 116, 0.14);
+}
+
+.tab-btn.active {
+  background: linear-gradient(180deg, #ffe8f3, #ffddea);
+  border-color: rgba(199, 74, 136, 0.42);
+  color: #92285d;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), #e24d97);
+  box-shadow: 0 10px 20px rgba(196, 60, 126, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 24px rgba(196, 60, 126, 0.34);
+}
+
+.btn-ghost {
+  background: rgba(255, 246, 252, 0.85);
+  border-color: rgba(208, 136, 175, 0.4);
+}
+
+.admin-layout {
+  gap: 16px;
+}
+
+.admin-main-column,
+.admin-side-column {
+  gap: 14px;
+}
+
+#adminList > .request-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 247, 252, 0.92));
+  border: 1px solid rgba(214, 164, 193, 0.35);
+  border-radius: 14px;
+}
+
+.activity-item {
+  grid-template-columns: 11px 1fr;
+}
+
+.activity-dot {
+  box-shadow: 0 0 0 4px rgba(214, 74, 138, 0.12);
+}
+
+input,
+select,
+textarea {
+  border-radius: 12px;
+  border-color: rgba(206, 146, 178, 0.5);
+  background: rgba(255, 251, 254, 0.92);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(207, 63, 132, 0.7);
+  box-shadow: 0 0 0 4px rgba(207, 63, 132, 0.12);
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    max-width: 100%;
+  }
+
+  .card {
+    border-radius: 14px;
+  }
+}
