@@ -11,29 +11,6 @@ const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 
 const config = window.APP_CONFIG || {};
-const FALLBACK_SITE_PASSWORD = "iremhasekisultan";
-const FALLBACK_ADMIN_PASSWORD = "gorzerk28";
-
-const SITE_PASSWORD = String(
-  config.sitePassword || localStorage.getItem("kalp-postasi-site-password") || FALLBACK_SITE_PASSWORD
-).trim();
-const ADMIN_PASSWORD = String(
-  config.adminPassword || localStorage.getItem("kalp-postasi-admin-password") || FALLBACK_ADMIN_PASSWORD
-).trim();
-const OWNER_SITE_PASSWORD = String(
-  config.ownerSitePassword || localStorage.getItem("kalp-postasi-owner-site-password") || ADMIN_PASSWORD
-).trim();
-const PARTNER_USERNAME = String(
-  config.partnerUsername || localStorage.getItem("kalp-postasi-partner-username") || "partner"
-)
-  .trim()
-  .toLocaleLowerCase("tr-TR");
-const OWNER_USERNAME = String(
-  config.ownerUsername || localStorage.getItem("kalp-postasi-owner-username") || "kalpsorumlusu"
-)
-  .trim()
-  .toLocaleLowerCase("tr-TR");
-
 const SYNC_MODE = (() => {
   const rawMode = String(config.syncMode || "local").trim().toLowerCase();
   if (["local", "remote", "auto"].includes(rawMode)) return rawMode;
@@ -56,6 +33,10 @@ function resolveRemoteStateEndpoint() {
 const REMOTE_STATE_ENDPOINT = resolveRemoteStateEndpoint();
 const NOTIFY_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/notify");
 const PRESENCE_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/presence");
+const AUTH_STATUS_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/status");
+const AUTH_SITE_LOGIN_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/site-login");
+const AUTH_ADMIN_LOGIN_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/admin-login");
+const AUTH_LOGOUT_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/logout");
 const REMOTE_STATE_IS_SAME_ORIGIN = (() => {
   try {
     return new URL(REMOTE_STATE_ENDPOINT, window.location.origin).origin === window.location.origin;
@@ -472,6 +453,40 @@ function applyRemoteState(remote) {
   renderServicePauseUI();
 }
 
+async function serverLogout() {
+  if (!remoteSyncEnabled) return;
+  try {
+    await fetch(AUTH_LOGOUT_ENDPOINT, {
+      method: "POST",
+      credentials: REMOTE_FETCH_CREDENTIALS,
+    });
+  } catch {
+    // logout isteği başarısız olsa da yerel oturumu kapat
+  }
+}
+
+async function syncSessionsFromServer() {
+  if (!remoteSyncEnabled) return;
+  try {
+    const response = await fetch(AUTH_STATUS_ENDPOINT, {
+      method: "GET",
+      credentials: REMOTE_FETCH_CREDENTIALS,
+    });
+    const payload = await response.json().catch(() => ({}));
+    const actor = String(payload.actor || "");
+
+    setSiteSession(Boolean(payload.siteAuthenticated));
+    if (payload.siteAuthenticated && actor) {
+      sessionStorage.setItem(SITE_LOGIN_ACTOR_KEY, actor);
+    }
+
+    setAdminSession(Boolean(payload.adminAuthenticated));
+  } catch {
+    setSiteSession(false);
+    setAdminSession(false);
+  }
+}
+
 let remotePushTimer = null;
 let suppressRemotePush = false;
 let hasPendingRemoteChanges = false;
@@ -616,27 +631,6 @@ async function ensureRemoteHydrated() {
   } finally {
     remoteHydrationPromise = null;
   }
-}
-
-function normalizeUsername(value) {
-  return String(value || "").trim().toLocaleLowerCase("tr-TR");
-}
-
-function resolveSiteLoginActor(username, password) {
-  const normalizedUsername = normalizeUsername(username);
-
-  if (normalizedUsername === PARTNER_USERNAME && password === SITE_PASSWORD) {
-    return "Sevgilin";
-  }
-
-  if (
-    normalizedUsername === OWNER_USERNAME &&
-    (password === OWNER_SITE_PASSWORD || password === ADMIN_PASSWORD)
-  ) {
-    return "Kalp Sorumlusu";
-  }
-
-  return "";
 }
 
 let ownsPartnerPresenceSession = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) === "Sevgilin";
@@ -944,15 +938,30 @@ window.addEventListener("storage", () => {
   renderDailyMessageEditor();
 });
 
-siteLoginForm.addEventListener("submit", (event) => {
+siteLoginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const enteredUsername = String(siteLoginForm.elements.siteUsername.value || "").trim();
   const enteredPassword = String(siteLoginForm.elements.sitePassword.value || "").trim();
 
-  const actor = resolveSiteLoginActor(enteredUsername, enteredPassword);
+  try {
+    const response = await fetch(AUTH_SITE_LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({ username: enteredUsername, password: enteredPassword }),
+    });
 
-  if (actor) {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok || !payload.actor) {
+      const retryAfterSec = Number(payload.retryAfterSec || 0);
+      siteLoginInfo.textContent = retryAfterSec > 0
+        ? `Çok fazla hatalı deneme. ${retryAfterSec} saniye sonra tekrar dene.`
+        : "Kullanıcı adı veya şifre yanlış. Lütfen tekrar deneyin.";
+      return;
+    }
+
+    const actor = String(payload.actor);
     if (actor === "Kalp Sorumlusu") {
       localStorage.setItem(OWNER_DEVICE_KEY, "1");
     }
@@ -970,33 +979,19 @@ siteLoginForm.addEventListener("submit", (event) => {
     addLoginLog(actor, "siteye giriş yaptı.");
     siteLoginInfo.textContent = "";
     siteLoginForm.reset();
-    return;
+  } catch {
+    siteLoginInfo.textContent = "Giriş sırasında bir ağ hatası oluştu. Lütfen tekrar deneyin.";
   }
-
-  state.failedSiteAttempts += 1;
-
-  if (state.failedSiteAttempts >= 5) {
-    siteLoginInfo.textContent =
-      "Çok fazla hatalı deneme yapıldı. Lütfen 30 saniye sonra tekrar deneyin.";
-    siteLoginForm.querySelector("button").disabled = true;
-    setTimeout(() => {
-      state.failedSiteAttempts = 0;
-      siteLoginForm.querySelector("button").disabled = false;
-      siteLoginInfo.textContent = "";
-    }, 30000);
-    return;
-  }
-
-  siteLoginInfo.textContent = "Kullanıcı adı veya şifre yanlış. Lütfen tekrar deneyin.";
 });
 
-siteLogoutBtn.addEventListener("click", () => {
+siteLogoutBtn.addEventListener("click", async () => {
   const actor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) || "Site Kullanıcısı";
 
   if (actor === "Sevgilin") {
     ownsPartnerPresenceSession = true;
   }
 
+  await serverLogout();
   setAdminSession(false);
   setSiteSession(false);
 
@@ -1483,24 +1478,40 @@ function setAdminSession(isActive) {
   }
 }
 
-adminLoginForm.addEventListener("submit", (event) => {
+adminLoginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const entered = String(adminLoginForm.elements.password.value || "").trim();
 
-  if (entered === ADMIN_PASSWORD) {
+  try {
+    const response = await fetch(AUTH_ADMIN_LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({ password: entered }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      const retryAfterSec = Number(payload.retryAfterSec || 0);
+      loginInfo.textContent = retryAfterSec > 0
+        ? `Çok fazla hatalı deneme. ${retryAfterSec} saniye sonra tekrar dene.`
+        : "Şifre yanlış. Bu alan sadece Kalp Sorumlusu kullanımına açık.";
+      return;
+    }
+
     localStorage.setItem(OWNER_DEVICE_KEY, "1");
     setAdminSession(true);
     addActivity("admin", "Kalp Sorumlusu panele giriş yaptı.");
     addLoginLog("Kalp Sorumlusu", "panele giriş yaptı.");
     loginInfo.textContent = "";
     adminLoginForm.reset();
-    return;
+  } catch {
+    loginInfo.textContent = "Panel girişinde ağ hatası oluştu. Lütfen tekrar dene.";
   }
-
-  loginInfo.textContent = "Şifre yanlış. Bu alan sadece Kalp Sorumlusu kullanımına açık.";
 });
 
-logoutBtn.addEventListener("click", () => {
+logoutBtn.addEventListener("click", async () => {
+  await serverLogout();
   setAdminSession(false);
   addActivity("admin", "Kalp Sorumlusu panelden çıkış yaptı.");
   addLoginLog("Kalp Sorumlusu", "panelden çıkış yaptı.");
@@ -1619,11 +1630,6 @@ if (servicePauseMessageResetBtn) {
   });
 }
 
-if (!SITE_PASSWORD || !ADMIN_PASSWORD) {
-  siteLoginInfo.textContent =
-    "Şifre yapılandırması yüklenemedi. config.js kontrol et veya fallback şifreleri kullan.";
-}
-
 renderDailyLoveMessage();
 renderDailyMessageEditor();
 renderServicePauseUI();
@@ -1632,8 +1638,8 @@ renderTrackList();
 renderActivityTimeline();
 renderLoginLogs();
 renderMailSetupStatus();
-setAdminSession(localStorage.getItem(ADMIN_SESSION_KEY) === "1");
-setSiteSession(sessionStorage.getItem(SITE_SESSION_KEY) === "1");
+setAdminSession(false);
+setSiteSession(false);
 renderPresenceBadge();
 if (remoteSyncEnabled) {
   if (RUNNING_ON_STATIC_ONLY_HOST && REMOTE_STATE_IS_SAME_ORIGIN) {
@@ -1644,6 +1650,8 @@ if (remoteSyncEnabled) {
     setInterval(pullRemoteState, 7000);
   }
 }
+
+syncSessionsFromServer();
 
 setInterval(updatePresenceHeartbeat, 5000);
 setInterval(renderPresenceBadge, 5000);

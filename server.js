@@ -15,12 +15,20 @@ const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
-const AUTH_SECRET = String(process.env.AUTH_SECRET || "dev-only-change-this-secret").trim();
+const AUTH_SECRET = String(process.env.AUTH_SECRET || "").trim();
 const SITE_USERNAME = String(process.env.SITE_USERNAME || "güzel kızım").trim().toLocaleLowerCase("tr-TR");
 const SITE_PASSWORD = String(process.env.SITE_PASSWORD || "").trim();
 const OWNER_USERNAME = String(process.env.OWNER_USERNAME || "kalpsorumlusu").trim().toLocaleLowerCase("tr-TR");
 const OWNER_SITE_PASSWORD = String(process.env.OWNER_SITE_PASSWORD || "").trim();
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "").trim();
+const TRUST_PROXY = String(process.env.TRUST_PROXY || "1").trim() === "1";
+const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const LOGIN_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 6;
+const loginAttempts = new Map();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -342,6 +350,18 @@ function writePresence(nextPresence) {
   });
 }
 
+function isOriginAllowed(req, origin) {
+  if (!origin) return false;
+  if (CORS_ALLOWED_ORIGINS.includes(origin)) return true;
+
+  try {
+    const requestOrigin = `http://${req.headers.host}`;
+    return new URL(origin).origin === new URL(requestOrigin).origin;
+  } catch {
+    return false;
+  }
+}
+
 function sendJson(req, res, status, payload, extraHeaders = {}) {
   const origin = req.headers.origin;
   const headers = {
@@ -352,7 +372,7 @@ function sendJson(req, res, status, payload, extraHeaders = {}) {
     ...extraHeaders,
   };
 
-  if (origin) {
+  if (origin && isOriginAllowed(req, origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
     headers.Vary = "Origin";
@@ -393,7 +413,10 @@ function verifyToken(token) {
   const crypto = require("crypto");
   const [body, sig] = token.split(".");
   const expected = crypto.createHmac("sha256", AUTH_SECRET).update(body).digest("base64url");
-  if (sig !== expected) return null;
+  const provided = Buffer.from(String(sig || ""));
+  const calculated = Buffer.from(expected);
+  if (provided.length !== calculated.length) return null;
+  if (!crypto.timingSafeEqual(provided, calculated)) return null;
 
   try {
     const payload = JSON.parse(base64UrlDecode(body));
@@ -405,12 +428,20 @@ function verifyToken(token) {
   }
 }
 
-function buildCookie(name, value, maxAgeSec = 60 * 60 * 12) {
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+function isSecureRequest(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+  if (TRUST_PROXY && forwardedProto) return forwardedProto.includes("https");
+  return Boolean(req.socket && req.socket.encrypted);
 }
 
-function buildExpiredCookie(name) {
-  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+function buildCookie(req, name, value, maxAgeSec = 60 * 60 * 12) {
+  const secureFlag = isSecureRequest(req) ? "; Secure" : "";
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag}`;
+}
+
+function buildExpiredCookie(req, name) {
+  const secureFlag = isSecureRequest(req) ? "; Secure" : "";
+  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`;
 }
 
 function getSiteAuth(req) {
@@ -421,6 +452,54 @@ function getSiteAuth(req) {
 function getAdminAuth(req) {
   const cookies = parseCookies(req);
   return verifyToken(cookies.kalp_admin_session || "");
+}
+
+function getClientIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || String(req.socket?.remoteAddress || "unknown");
+}
+
+function rateLimitKey(req, username = "") {
+  return `${getClientIp(req)}:${normalizeUsername(username)}`;
+}
+
+function normalizeUsername(value) {
+  return String(value || "").trim().toLocaleLowerCase("tr-TR");
+}
+
+function checkRateLimit(req, username = "") {
+  const key = rateLimitKey(req, username);
+  const now = Date.now();
+  const current = loginAttempts.get(key) || { count: 0, firstAttemptAt: now };
+
+  if (now - current.firstAttemptAt > LOGIN_RATE_LIMIT_WINDOW_MS) {
+    loginAttempts.set(key, { count: 0, firstAttemptAt: now });
+    return { limited: false, retryAfterSec: 0 };
+  }
+
+  if (current.count >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS) {
+    const retryAfterSec = Math.ceil((LOGIN_RATE_LIMIT_WINDOW_MS - (now - current.firstAttemptAt)) / 1000);
+    return { limited: true, retryAfterSec };
+  }
+
+  return { limited: false, retryAfterSec: 0 };
+}
+
+function registerLoginFailure(req, username = "") {
+  const key = rateLimitKey(req, username);
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+
+  if (!current || now - current.firstAttemptAt > LOGIN_RATE_LIMIT_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAttemptAt: now });
+    return;
+  }
+
+  loginAttempts.set(key, { count: current.count + 1, firstAttemptAt: current.firstAttemptAt });
+}
+
+function clearLoginFailures(req, username = "") {
+  loginAttempts.delete(rateLimitKey(req, username));
 }
 
 function serveStatic(req, res, pathname) {
@@ -594,8 +673,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
-      const username = String(payload.username || "").trim().toLocaleLowerCase("tr-TR");
+      const username = normalizeUsername(payload.username || "");
       const password = String(payload.password || "").trim();
+
+      const siteLoginLimit = checkRateLimit(req, username);
+      if (siteLoginLimit.limited) {
+        return sendJson(req, res, 429, { ok: false, error: "Too many attempts", retryAfterSec: siteLoginLimit.retryAfterSec });
+      }
 
       let actor = "";
       if (SITE_PASSWORD && username === SITE_USERNAME && password === SITE_PASSWORD) {
@@ -608,8 +692,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (!actor) {
+        registerLoginFailure(req, username);
         return sendJson(req, res, 401, { ok: false, error: "Invalid credentials" });
       }
+
+      clearLoginFailures(req, username);
 
       const token = signToken({ actor, exp: Date.now() + 1000 * 60 * 60 * 12 });
       return sendJson(
@@ -617,7 +704,7 @@ const server = http.createServer(async (req, res) => {
         res,
         200,
         { ok: true, actor },
-        { "Set-Cookie": [buildCookie("kalp_site_session", token)] }
+        { "Set-Cookie": [buildCookie(req, "kalp_site_session", token)] }
       );
     } catch {
       return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
@@ -634,9 +721,18 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
       const password = String(payload.password || "").trim();
+
+      const adminLoginLimit = checkRateLimit(req, "admin");
+      if (adminLoginLimit.limited) {
+        return sendJson(req, res, 429, { ok: false, error: "Too many attempts", retryAfterSec: adminLoginLimit.retryAfterSec });
+      }
+
       if (!ADMIN_PASSWORD || password !== ADMIN_PASSWORD) {
+        registerLoginFailure(req, "admin");
         return sendJson(req, res, 401, { ok: false, error: "Invalid admin password" });
       }
+
+      clearLoginFailures(req, "admin");
 
       const token = signToken({ role: "admin", exp: Date.now() + 1000 * 60 * 60 * 12 });
       return sendJson(
@@ -644,7 +740,7 @@ const server = http.createServer(async (req, res) => {
         res,
         200,
         { ok: true },
-        { "Set-Cookie": [buildCookie("kalp_admin_session", token)] }
+        { "Set-Cookie": [buildCookie(req, "kalp_admin_session", token)] }
       );
     } catch {
       return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
@@ -657,11 +753,15 @@ const server = http.createServer(async (req, res) => {
       res,
       200,
       { ok: true },
-      { "Set-Cookie": [buildExpiredCookie("kalp_site_session"), buildExpiredCookie("kalp_admin_session")] }
+      { "Set-Cookie": [buildExpiredCookie(req, "kalp_site_session"), buildExpiredCookie(req, "kalp_admin_session")] }
     );
   }
 
   if (url.pathname === "/api/state" && req.method === "GET") {
+    const siteAuth = getSiteAuth(req);
+    if (!siteAuth) {
+      return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
+    }
     return sendJson(req, res, 200, readState());
   }
 
@@ -756,6 +856,11 @@ const server = http.createServer(async (req, res) => {
 
   return serveStatic(req, res, url.pathname);
 });
+
+if (!AUTH_SECRET) {
+  console.error("AUTH_SECRET environment variable is required for secure session signing.");
+  process.exit(1);
+}
 
 server.listen(PORT, () => {
   ensureStateFile();
