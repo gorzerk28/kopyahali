@@ -407,10 +407,38 @@ function isAdminEditorActive() {
   return tag === "textarea" || tag === "select" || tag === "input";
 }
 
+function mergeRequestsPreferLatest(localRequests, remoteRequests) {
+  const local = Array.isArray(localRequests) ? localRequests : [];
+  const remote = Array.isArray(remoteRequests) ? remoteRequests : [];
+  const byId = new Map();
+
+  const score = (item) => {
+    const rev = Number(item?._rev || 0);
+    const updated = Date.parse(item?.updatedAt || "") || 0;
+    return rev * 1_000_000_000_000 + updated;
+  };
+
+  for (const item of local) {
+    if (!item?.id) continue;
+    byId.set(String(item.id), item);
+  }
+
+  for (const item of remote) {
+    if (!item?.id) continue;
+    const id = String(item.id);
+    const existing = byId.get(id);
+    if (!existing || score(item) >= score(existing)) {
+      byId.set(id, item);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
 
-  state.requests = Array.isArray(remote.requests) ? remote.requests : state.requests;
+  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -1335,7 +1363,7 @@ function createAdminCard(item) {
     target._rev = Number(target._rev || 0) + 1;
 
     saveRequests();
-    await pushRemoteState();
+    await pushRemoteState({ force: true });
     adminDrafts.delete(String(item.id));
     addActivity("admin", `Talep güncellendi: ${item.title} → ${status}`);
 
@@ -1441,8 +1469,6 @@ function createRequestId() {
 
 requestForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await syncBeforeMutation();
-
   const formData = new FormData(requestForm);
   const request = {
     id: createRequestId(),
@@ -1461,7 +1487,7 @@ requestForm.addEventListener("submit", async (event) => {
 
   state.requests.push(request);
   saveRequests();
-  await pushRemoteState();
+  await pushRemoteState({ force: true });
 
   requestForm.reset();
   formInfo.textContent = "Talebin başarıyla gönderildi! Talep Takip sekmesinden durumu izleyebilirsin.";
