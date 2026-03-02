@@ -367,7 +367,7 @@ function sendJson(req, res, status, payload, extraHeaders = {}) {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-CSRF-Token",
     "Cache-Control": "no-store",
     ...extraHeaders,
   };
@@ -434,14 +434,18 @@ function isSecureRequest(req) {
   return Boolean(req.socket && req.socket.encrypted);
 }
 
-function buildCookie(req, name, value, maxAgeSec = 60 * 60 * 12) {
+function buildCookie(req, name, value, maxAgeSec = 60 * 60 * 12, options = {}) {
   const secureFlag = isSecureRequest(req) ? "; Secure" : "";
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag}`;
+  const httpOnlyFlag = options.httpOnly === false ? "" : "; HttpOnly";
+  const sameSite = options.sameSite || "Lax";
+  return `${name}=${encodeURIComponent(value)}; Path=/${httpOnlyFlag}; SameSite=${sameSite}; Max-Age=${maxAgeSec}${secureFlag}`;
 }
 
-function buildExpiredCookie(req, name) {
+function buildExpiredCookie(req, name, options = {}) {
   const secureFlag = isSecureRequest(req) ? "; Secure" : "";
-  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`;
+  const httpOnlyFlag = options.httpOnly === false ? "" : "; HttpOnly";
+  const sameSite = options.sameSite || "Lax";
+  return `${name}=; Path=/${httpOnlyFlag}; SameSite=${sameSite}; Max-Age=0${secureFlag}`;
 }
 
 function getSiteAuth(req) {
@@ -452,6 +456,24 @@ function getSiteAuth(req) {
 function getAdminAuth(req) {
   const cookies = parseCookies(req);
   return verifyToken(cookies.kalp_admin_session || "");
+}
+
+function issueCsrfToken() {
+  return signToken({ kind: "csrf", exp: Date.now() + 1000 * 60 * 60 * 12 });
+}
+
+function getCsrfToken(req) {
+  const cookies = parseCookies(req);
+  return String(cookies.kalp_csrf || "");
+}
+
+function verifyCsrf(req) {
+  const csrfCookie = getCsrfToken(req);
+  const csrfHeader = String(req.headers["x-csrf-token"] || "").trim();
+  if (!csrfCookie || !csrfHeader) return false;
+  if (csrfCookie !== csrfHeader) return false;
+  const payload = verifyToken(csrfHeader);
+  return Boolean(payload && payload.kind === "csrf");
 }
 
 function getClientIp(req) {
@@ -662,11 +684,30 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/auth/status" && req.method === "GET") {
     const siteAuth = getSiteAuth(req);
     const adminAuth = getAdminAuth(req);
-    return sendJson(req, res, 200, {
-      siteAuthenticated: Boolean(siteAuth),
-      adminAuthenticated: Boolean(adminAuth),
-      actor: siteAuth?.actor || null,
-    });
+    const isAuthed = Boolean(siteAuth || adminAuth);
+    let csrfToken = getCsrfToken(req);
+    const cookieHeaders = [];
+
+    if (isAuthed) {
+      const validExisting = verifyToken(csrfToken);
+      if (!validExisting || validExisting.kind !== "csrf") {
+        csrfToken = issueCsrfToken();
+        cookieHeaders.push(buildCookie(req, "kalp_csrf", csrfToken, 60 * 60 * 12, { httpOnly: false }));
+      }
+    }
+
+    return sendJson(
+      req,
+      res,
+      200,
+      {
+        siteAuthenticated: Boolean(siteAuth),
+        adminAuthenticated: Boolean(adminAuth),
+        actor: siteAuth?.actor || null,
+        csrfToken: isAuthed ? csrfToken : null,
+      },
+      cookieHeaders.length ? { "Set-Cookie": cookieHeaders } : {}
+    );
   }
 
   if (url.pathname === "/api/auth/site-login" && req.method === "POST") {
@@ -699,12 +740,18 @@ const server = http.createServer(async (req, res) => {
       clearLoginFailures(req, username);
 
       const token = signToken({ actor, exp: Date.now() + 1000 * 60 * 60 * 12 });
+      const csrfToken = issueCsrfToken();
       return sendJson(
         req,
         res,
         200,
-        { ok: true, actor },
-        { "Set-Cookie": [buildCookie(req, "kalp_site_session", token)] }
+        { ok: true, actor, csrfToken },
+        {
+          "Set-Cookie": [
+            buildCookie(req, "kalp_site_session", token),
+            buildCookie(req, "kalp_csrf", csrfToken, 60 * 60 * 12, { httpOnly: false }),
+          ],
+        }
       );
     } catch {
       return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
@@ -735,12 +782,18 @@ const server = http.createServer(async (req, res) => {
       clearLoginFailures(req, "admin");
 
       const token = signToken({ role: "admin", exp: Date.now() + 1000 * 60 * 60 * 12 });
+      const csrfToken = issueCsrfToken();
       return sendJson(
         req,
         res,
         200,
-        { ok: true },
-        { "Set-Cookie": [buildCookie(req, "kalp_admin_session", token)] }
+        { ok: true, csrfToken },
+        {
+          "Set-Cookie": [
+            buildCookie(req, "kalp_admin_session", token),
+            buildCookie(req, "kalp_csrf", csrfToken, 60 * 60 * 12, { httpOnly: false }),
+          ],
+        }
       );
     } catch {
       return sendJson(req, res, 400, { ok: false, error: "Invalid JSON payload" });
@@ -748,12 +801,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+    if ((getSiteAuth(req) || getAdminAuth(req)) && !verifyCsrf(req)) {
+      return sendJson(req, res, 403, { ok: false, error: "CSRF validation failed" });
+    }
+
     return sendJson(
       req,
       res,
       200,
       { ok: true },
-      { "Set-Cookie": [buildExpiredCookie(req, "kalp_site_session"), buildExpiredCookie(req, "kalp_admin_session")] }
+      {
+        "Set-Cookie": [
+          buildExpiredCookie(req, "kalp_site_session"),
+          buildExpiredCookie(req, "kalp_admin_session"),
+          buildExpiredCookie(req, "kalp_csrf", { httpOnly: false }),
+        ],
+      }
     );
   }
 
@@ -770,6 +833,9 @@ const server = http.createServer(async (req, res) => {
     if (!siteAuth) {
       return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
     }
+    if (!verifyCsrf(req)) {
+      return sendJson(req, res, 403, { ok: false, error: "CSRF validation failed" });
+    }
 
     try {
       const raw = await readBody(req);
@@ -785,6 +851,9 @@ const server = http.createServer(async (req, res) => {
     const siteAuth = getSiteAuth(req);
     if (!siteAuth) {
       return sendJson(req, res, 401, { ok: false, error: "Authentication required" });
+    }
+    if (!verifyCsrf(req)) {
+      return sendJson(req, res, 403, { ok: false, error: "CSRF validation failed" });
     }
 
     try {
@@ -805,6 +874,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/notify" && req.method === "POST") {
+    if (!verifyCsrf(req)) {
+      return sendJson(req, res, 403, { ok: false, error: "CSRF validation failed" });
+    }
+
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};

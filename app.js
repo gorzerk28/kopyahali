@@ -52,6 +52,7 @@ const RUNNING_ON_STATIC_ONLY_HOST = STATIC_ONLY_HOSTS.some((host) =>
 const PARTNER_EMAIL = String(config.partnerEmail || "").trim();
 let remoteSyncEnabled = SYNC_MODE !== "local";
 let hasWarnedRemoteUnavailable = false;
+let csrfToken = "";
 
 const DEFAULT_SERVICE_PAUSE_MESSAGE =
   "Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır. Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.";
@@ -453,11 +454,22 @@ function applyRemoteState(remote) {
   renderServicePauseUI();
 }
 
+function getApiHeaders(extraHeaders = {}, method = "GET") {
+  const headers = { ...extraHeaders };
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const needsCsrf = ["POST", "PUT", "PATCH", "DELETE"].includes(normalizedMethod);
+  if (needsCsrf && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+  return headers;
+}
+
 async function serverLogout() {
   if (!remoteSyncEnabled) return;
   try {
     await fetch(AUTH_LOGOUT_ENDPOINT, {
       method: "POST",
+      headers: getApiHeaders({}, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
     });
   } catch {
@@ -474,6 +486,7 @@ async function syncSessionsFromServer() {
     });
     const payload = await response.json().catch(() => ({}));
     const actor = String(payload.actor || "");
+    csrfToken = String(payload.csrfToken || "");
 
     setSiteSession(Boolean(payload.siteAuthenticated));
     if (payload.siteAuthenticated && actor) {
@@ -482,6 +495,7 @@ async function syncSessionsFromServer() {
 
     setAdminSession(Boolean(payload.adminAuthenticated));
   } catch {
+    csrfToken = "";
     setSiteSession(false);
     setAdminSession(false);
   }
@@ -538,7 +552,7 @@ async function pushPresenceState() {
   try {
     await fetch(PRESENCE_ENDPOINT, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "PUT"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({ partnerPresence: state.partnerPresence }),
     });
@@ -564,7 +578,7 @@ async function pushRemoteState(options = {}) {
   try {
     const response = await fetch(REMOTE_STATE_ENDPOINT, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "PUT"),
       body: JSON.stringify(getSerializableState({ deletedRequestIds })),
       credentials: REMOTE_FETCH_CREDENTIALS,
     });
@@ -947,7 +961,7 @@ siteLoginForm.addEventListener("submit", async (event) => {
   try {
     const response = await fetch(AUTH_SITE_LOGIN_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({ username: enteredUsername, password: enteredPassword }),
     });
@@ -961,6 +975,7 @@ siteLoginForm.addEventListener("submit", async (event) => {
       return;
     }
 
+    csrfToken = String(payload.csrfToken || csrfToken);
     const actor = String(payload.actor);
     if (actor === "Kalp Sorumlusu") {
       localStorage.setItem(OWNER_DEVICE_KEY, "1");
@@ -992,6 +1007,7 @@ siteLogoutBtn.addEventListener("click", async () => {
   }
 
   await serverLogout();
+  csrfToken = "";
   setAdminSession(false);
   setSiteSession(false);
 
@@ -1196,7 +1212,7 @@ async function sendEmailNotification(item, status, result) {
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
@@ -1241,7 +1257,7 @@ async function notifyOwnerOnNewRequest(request) {
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "telegram",
@@ -1485,12 +1501,13 @@ adminLoginForm.addEventListener("submit", async (event) => {
   try {
     const response = await fetch(AUTH_ADMIN_LOGIN_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({ password: entered }),
     });
 
     const payload = await response.json().catch(() => ({}));
+    csrfToken = String(payload.csrfToken || csrfToken);
     if (!response.ok || !payload.ok) {
       const retryAfterSec = Number(payload.retryAfterSec || 0);
       loginInfo.textContent = retryAfterSec > 0
@@ -1512,6 +1529,7 @@ adminLoginForm.addEventListener("submit", async (event) => {
 
 logoutBtn.addEventListener("click", async () => {
   await serverLogout();
+  csrfToken = "";
   setAdminSession(false);
   addActivity("admin", "Kalp Sorumlusu panelden çıkış yaptı.");
   addLoginLog("Kalp Sorumlusu", "panelden çıkış yaptı.");
