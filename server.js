@@ -9,6 +9,7 @@ const DEFAULT_DATA_DIR = fs.existsSync("/var/data") ? "/var/data" : path.join(RO
 const DATA_DIR = path.resolve(String(process.env.DATA_DIR || DEFAULT_DATA_DIR));
 const STATE_FILE = path.resolve(String(process.env.STATE_FILE || path.join(DATA_DIR, "shared-state.json")));
 const BACKUP_DIR = path.join(path.dirname(STATE_FILE), "state-backups");
+const LEDGER_FILE = path.join(path.dirname(STATE_FILE), "request-ledger.ndjson");
 const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
@@ -52,6 +53,7 @@ function defaultState() {
 function ensureDataFolders() {
   if (!fs.existsSync(path.dirname(STATE_FILE))) fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!fs.existsSync(LEDGER_FILE)) fs.writeFileSync(LEDGER_FILE, "", "utf8");
 }
 
 function writeJsonAtomic(filePath, payload) {
@@ -102,7 +104,47 @@ function restoreLatestBackupIfAny() {
   }
 }
 
+function appendLedgerEntry(kind, statePayload) {
+  try {
+    const entry = {
+      kind,
+      at: new Date().toISOString(),
+      state: statePayload,
+    };
+    fs.appendFileSync(LEDGER_FILE, `${JSON.stringify(entry)}
+`, "utf8");
+  } catch {
+    // ledger yazılamasa da ana işlem devam etsin
+  }
+}
+
+function restoreStateFromLedgerIfAny() {
+  try {
+    if (!fs.existsSync(LEDGER_FILE)) return false;
+    const raw = fs.readFileSync(LEDGER_FILE, "utf8").trim();
+    if (!raw) return false;
+
+    const lines = raw.split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      try {
+        const parsed = JSON.parse(lines[i]);
+        if (!parsed || typeof parsed !== "object") continue;
+        if (!parsed.state || typeof parsed.state !== "object") continue;
+        writeJsonAtomic(STATE_FILE, parsed.state);
+        return true;
+      } catch {
+        // bu satır bozuksa bir öncekini dene
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function ensureStateFile() {
+
   ensureDataFolders();
   if (fs.existsSync(STATE_FILE)) return;
 
@@ -110,7 +152,12 @@ function ensureStateFile() {
     return;
   }
 
+  if (restoreStateFromLedgerIfAny()) {
+    return;
+  }
+
   writeJsonAtomic(STATE_FILE, defaultState());
+  appendLedgerEntry("state_initialized", defaultState());
 }
 
 function readState() {
@@ -139,7 +186,7 @@ function readState() {
           : { active: false, reason: "", updatedAt: null },
     };
   } catch {
-    if (restoreLatestBackupIfAny()) {
+    if (restoreLatestBackupIfAny() || restoreStateFromLedgerIfAny()) {
       try {
         const raw = fs.readFileSync(STATE_FILE, "utf8");
         const parsed = JSON.parse(raw);
@@ -206,6 +253,7 @@ function writeState(next) {
   const rawSafe = JSON.stringify(safe, null, 2);
   writeJsonAtomic(STATE_FILE, safe);
   createStateBackup(rawSafe);
+  appendLedgerEntry("state_written", safe);
   return safe;
 }
 
@@ -545,4 +593,5 @@ server.listen(PORT, () => {
   ensureStateFile();
   console.log(`Kalp Postası server running on http://0.0.0.0:${PORT}`);
   console.log(`State file: ${STATE_FILE}`);
+  console.log(`Ledger file: ${LEDGER_FILE}`);
 });
