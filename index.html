@@ -255,6 +255,23 @@
             </form>
           </article>
 
+
+          <article class="card notify-send-card">
+            <h2>Mail Gönder</h2>
+            <p class="muted">Sevgiline doğrudan mail gönder (başlık + konu).</p>
+            <form id="sendManualEmailForm" class="admin-form">
+              <label>
+                Mail Başlığı
+                <input name="mailSubject" placeholder="Örn: Sana bir notum var 💌" required />
+              </label>
+              <label>
+                Mail Konusu
+                <textarea name="mailBody" rows="4" placeholder="Mail içeriğini buraya yaz..." required></textarea>
+              </label>
+              <button class="btn-primary" type="submit">Mail Gönder ✉️</button>
+              <p id="sendManualEmailInfo" class="muted" aria-live="polite"></p>
+            </form>
+          </article>
           <article class="card">
             <h2>Gelen Talepler</h2>
             <div id="adminList" class="stack"></div>

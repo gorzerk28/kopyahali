@@ -105,6 +105,8 @@ const adminContent = document.getElementById("adminContent");
 const logoutBtn = document.getElementById("logoutBtn");
 const sendNotificationForm = document.getElementById("sendNotificationForm");
 const sendNotificationInfo = document.getElementById("sendNotificationInfo");
+const sendManualEmailForm = document.getElementById("sendManualEmailForm");
+const sendManualEmailInfo = document.getElementById("sendManualEmailInfo");
 const partnerPresence = document.getElementById("partnerPresence");
 const loveBurstLayer = document.getElementById("loveBurstLayer");
 const brandLogoImage = document.getElementById("brandLogoImage");
@@ -1269,6 +1271,45 @@ async function sendEmailNotification(item, status, result) {
   }
 }
 
+
+async function sendManualEmail(subject, text) {
+  if (!PARTNER_EMAIL) {
+    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
+  }
+
+  try {
+    const response = await fetch(NOTIFY_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({
+        channel: "email",
+        to: PARTNER_EMAIL,
+        subject,
+        text,
+      }),
+    });
+
+    if (response.ok) {
+      return { ok: true, message: "Mail gönderildi 💌" };
+    }
+
+    const errorPayload = await response.json().catch(() => ({}));
+    return {
+      ok: false,
+      message:
+        errorPayload.hint ||
+        errorPayload.details ||
+        "Mail gönderilemedi. Render ortam değişkenlerini kontrol et (EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM).",
+    };
+  } catch {
+    return {
+      ok: false,
+      message: "Sunucuya bağlanılamadı. Render servisinin ayakta olduğundan emin ol.",
+    };
+  }
+}
+
 function buildOwnerTelegramText(request) {
   return [
     "📩 Yeni Talep Oluşturuldu",
@@ -1460,6 +1501,30 @@ sendNotificationForm.addEventListener("submit", async (event) => {
   addActivity("admin", `Özel bildirim gönderildi: ${title}`);
   playCelebrationBurst("soft");
 });
+if (sendManualEmailForm) {
+  sendManualEmailForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(sendManualEmailForm);
+    const subject = String(formData.get("mailSubject") || "").trim();
+    const text = String(formData.get("mailBody") || "").trim();
+
+    if (!subject || !text) {
+      sendManualEmailInfo.textContent = "Başlık ve konu alanı zorunlu.";
+      return;
+    }
+
+    const result = await sendManualEmail(subject, text);
+    sendManualEmailInfo.textContent = result.message;
+
+    if (result.ok) {
+      sendManualEmailForm.reset();
+      addActivity("admin", `Manuel mail gönderildi: ${subject}`);
+      playCelebrationBurst("soft");
+    }
+  });
+}
+
 
 function createRequestId() {
   const timePart = Date.now().toString(36);
