@@ -421,11 +421,36 @@ textarea {
   flex-wrap: wrap;
 }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.admin-toolbar-full {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.admin-main-column,
+.admin-side-column {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
 .admin-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-toolbar-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .notify-send-card {
@@ -795,5 +820,13 @@ textarea {
 
   .gate-hero {
     height: 140px;
+  }
+
+  .admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-toolbar-full {
+    grid-column: auto;
   }
 }
