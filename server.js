@@ -289,10 +289,21 @@ async function sendEmail(payload) {
 
   if (!response.ok) {
     const errorText = await response.text();
+    let hint = "Resend gönderimi başarısız. Domain doğrulaması ve EMAIL_FROM değerini kontrol et.";
+
+    if (/testing emails/i.test(errorText) || /verify a domain/i.test(errorText)) {
+      hint = "Resend hesabı test modunda görünüyor. Kendi doğrulanmış domainini ekleyip EMAIL_FROM'u o domainden yaz.";
+    } else if (/from address/i.test(errorText) || /sender/i.test(errorText)) {
+      hint = "EMAIL_FROM geçersiz veya doğrulanmamış. Örn: noreply@senindomain.com.tr kullan.";
+    } else if (/api key/i.test(errorText) || /unauthorized/i.test(errorText)) {
+      hint = "RESEND_API_KEY geçersiz görünüyor. Render Environment'da anahtarı yenileyip kaydet.";
+    }
+
     return {
       ok: false,
       status: 502,
       error: "Failed to send email",
+      hint,
       details: errorText,
     };
   }

@@ -1219,6 +1219,7 @@ async function sendEmailNotification(item, status, result) {
       ok: false,
       message:
         errorPayload.hint ||
+        errorPayload.details ||
         "Otomatik mail gönderilemedi. Render ortam değişkenlerini kontrol et (EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM).",
     };
   } catch {
