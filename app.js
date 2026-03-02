@@ -9,6 +9,7 @@ const DAILY_MESSAGES_KEY = "kalp-postasi-daily-messages";
 const OWNER_DEVICE_KEY = "kalp-postasi-owner-device";
 const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
+const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
 
 const config = window.APP_CONFIG || {};
 const SYNC_MODE = (() => {
@@ -437,10 +438,37 @@ function mergeRequestsPreferLatest(localRequests, remoteRequests) {
   return Array.from(byId.values());
 }
 
+function shouldProtectLocalRequestsOnRemotePull(remote) {
+  const localIds = new Set((Array.isArray(state.requests) ? state.requests : []).map((item) => String(item.id)));
+  if (!localIds.size) return false;
+
+  const remoteRequests = Array.isArray(remote?.requests) ? remote.requests : [];
+  const remoteIds = new Set(remoteRequests.map((item) => String(item.id)));
+  const remoteDeleted = new Set(
+    Array.isArray(remote?.deletedRequestIds) ? remote.deletedRequestIds.map((id) => String(id)) : []
+  );
+
+  let missingWithoutDeleteProof = 0;
+  for (const id of localIds) {
+    if (remoteIds.has(id) || remoteDeleted.has(id)) continue;
+    missingWithoutDeleteProof += 1;
+  }
+
+  return missingWithoutDeleteProof > 0;
+}
+
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
 
-  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
+  const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
+  if (protectLocalRequests) {
+    const backup = loadRequestsBackup();
+    if (backup.length > state.requests.length) {
+      state.requests = mergeRequestsPreferLatest(state.requests, backup);
+    }
+  } else {
+    state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
+  }
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -461,6 +489,15 @@ function applyRemoteState(remote) {
         updatedAt: remote.servicePause.updatedAt || null,
       }
     : state.servicePause;
+
+  if (protectLocalRequests && remoteSyncEnabled) {
+    const now = Date.now();
+    if (now - lastProtectiveRemotePushAt > 15000) {
+      lastProtectiveRemotePushAt = now;
+      bellInfo.textContent = "Uyarı: Sunucudan eksik veri geldi, yerel talepler korundu ve tekrar senkronlanıyor.";
+      pushRemoteState({ force: true });
+    }
+  }
 
   suppressRemotePush = true;
   saveRequests();
@@ -541,6 +578,7 @@ let suppressRemotePush = false;
 let hasPendingRemoteChanges = false;
 let hasHydratedRemoteState = false;
 let remoteHydrationPromise = null;
+let lastProtectiveRemotePushAt = 0;
 
 function notifyRemoteUnavailable(reason = "") {
   if (hasWarnedRemoteUnavailable) return;
@@ -910,6 +948,22 @@ function loadRequests() {
   }
 }
 
+function loadRequestsBackup() {
+  const raw = localStorage.getItem(REQUESTS_BACKUP_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRequestsBackup() {
+  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(state.requests));
+}
+
 function loadCustomNotifications() {
   const raw = localStorage.getItem(CUSTOM_NOTIFICATIONS_KEY);
   if (!raw) return [];
@@ -929,6 +983,7 @@ function loadCustomNotifications() {
 
 function saveRequests() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.requests));
+  saveRequestsBackup();
   queueRemotePush();
 }
 
