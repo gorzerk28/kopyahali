@@ -108,6 +108,9 @@ const sendNotificationForm = document.getElementById("sendNotificationForm");
 const sendNotificationInfo = document.getElementById("sendNotificationInfo");
 const sendManualEmailForm = document.getElementById("sendManualEmailForm");
 const sendManualEmailInfo = document.getElementById("sendManualEmailInfo");
+const refreshRequestsBtn = document.getElementById("refreshRequestsBtn");
+const restoreRequestsBtn = document.getElementById("restoreRequestsBtn");
+const syncRecoveryInfo = document.getElementById("syncRecoveryInfo");
 const partnerPresence = document.getElementById("partnerPresence");
 const loveBurstLayer = document.getElementById("loveBurstLayer");
 const brandLogoImage = document.getElementById("brandLogoImage");
@@ -1535,6 +1538,53 @@ function renderAdminList() {
 
   const ordered = [...state.requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   ordered.forEach((item) => adminList.appendChild(createAdminCard(item)));
+}
+
+async function restoreRequestsFromBackup() {
+  const backup = loadRequestsBackup();
+  if (!backup.length) {
+    return { ok: false, message: "Yerel yedekte talep bulunamadı." };
+  }
+
+  const beforeCount = state.requests.length;
+  state.requests = mergeRequestsPreferLatest(state.requests, backup);
+  const afterCount = state.requests.length;
+  saveRequests();
+  renderTrackList();
+  renderAdminList();
+  renderTrackNotifications();
+
+  if (afterCount <= beforeCount) {
+    return { ok: false, message: "Yedekte yeni bir talep bulunamadı." };
+  }
+
+  await pushRemoteState({ force: true });
+  return { ok: true, message: `${afterCount - beforeCount} talep yedekten geri yüklendi ve sunucuya gönderildi.` };
+}
+
+if (refreshRequestsBtn) {
+  refreshRequestsBtn.addEventListener("click", async () => {
+    await pullRemoteState();
+    renderTrackList();
+    renderAdminList();
+    renderTrackNotifications();
+    if (syncRecoveryInfo) {
+      syncRecoveryInfo.textContent = "Talepler sunucudan yenilendi.";
+    }
+  });
+}
+
+if (restoreRequestsBtn) {
+  restoreRequestsBtn.addEventListener("click", async () => {
+    const result = await restoreRequestsFromBackup();
+    if (syncRecoveryInfo) {
+      syncRecoveryInfo.textContent = result.message;
+    }
+    if (result.ok) {
+      addActivity("admin", "Yedekten talep geri yükleme işlemi çalıştırıldı.");
+      playCelebrationBurst("soft");
+    }
+  });
 }
 
 sendNotificationForm.addEventListener("submit", async (event) => {
