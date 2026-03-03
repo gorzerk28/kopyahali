@@ -19,6 +19,6 @@ window.APP_CONFIG = {
   // syncMode remote/auto iken boş bırakırsan otomatik olarak bu sitenin kendi /api/state adresi kullanılır.
   apiBaseUrl: "",
 
-  // İstanbul vakti girince otomatik çalacak ezan sesi (boş bırakılırsa varsayılan URL kullanılır)
+  // İstanbul vakti girince otomatik çalacak ezan sesi (doğrudan .mp3/.ogg linki ver; YouTube linki olmaz)
   ezanAudioUrl: "",
 };

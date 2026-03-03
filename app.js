@@ -40,9 +40,8 @@ const AUTH_ADMIN_LOGIN_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/,
 const AUTH_LOGOUT_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/logout");
 const PRAYER_TIMES_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/prayer-times");
 const ISTANBUL_TIMEZONE = "Europe/Istanbul";
-const EZAN_AUDIO_URL = String(
-  config.ezanAudioUrl || "https://upload.wikimedia.org/wikipedia/commons/3/32/Adhan.ogg"
-).trim();
+const DEFAULT_EZAN_AUDIO_URL = "https://upload.wikimedia.org/wikipedia/commons/3/32/Adhan.ogg";
+const RAW_EZAN_AUDIO_URL = String(config.ezanAudioUrl || "").trim();
 const REMOTE_STATE_IS_SAME_ORIGIN = (() => {
   try {
     return new URL(REMOTE_STATE_ENDPOINT, window.location.origin).origin === window.location.origin;
@@ -151,6 +150,7 @@ const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
 const ezanTestBtn = document.getElementById("ezanTestBtn");
+const ezanSourceInfo = document.getElementById("ezanSourceInfo");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -290,6 +290,41 @@ function parseMinute(hhmm = "") {
   return h * 60 + m;
 }
 
+function isYoutubeUrl(urlText = "") {
+  const value = String(urlText || "").toLowerCase();
+  return value.includes("youtube.com") || value.includes("youtu.be");
+}
+
+function isLikelyDirectAudioUrl(urlText = "") {
+  if (!urlText) return false;
+  if (isYoutubeUrl(urlText)) return false;
+
+  const lower = String(urlText).toLowerCase();
+  return [".mp3", ".ogg", ".wav", ".m4a", ".aac", ".flac"].some((ext) => lower.includes(ext));
+}
+
+function resolveEzanAudioUrl() {
+  if (!RAW_EZAN_AUDIO_URL) {
+    return { url: DEFAULT_EZAN_AUDIO_URL, note: "Varsayılan ezan sesi kullanılıyor." };
+  }
+
+  if (isYoutubeUrl(RAW_EZAN_AUDIO_URL)) {
+    return {
+      url: DEFAULT_EZAN_AUDIO_URL,
+      note: "YouTube linki direkt ses dosyası değildir. Varsayılan ezan sesi kullanılıyor.",
+    };
+  }
+
+  if (!isLikelyDirectAudioUrl(RAW_EZAN_AUDIO_URL)) {
+    return {
+      url: DEFAULT_EZAN_AUDIO_URL,
+      note: "Ses linki doğrudan dosya formatında değil (.mp3/.ogg). Varsayılan ezan sesi kullanılıyor.",
+    };
+  }
+
+  return { url: RAW_EZAN_AUDIO_URL, note: "Özel ezan sesi aktif." };
+}
+
 function normalizePrayerTimings(timings = {}) {
   const order = [
     ["Fajr", "İmsak"],
@@ -342,13 +377,14 @@ function disableEzanModeIfExpired() {
 }
 
 function playEzanAuto() {
-  if (!EZAN_AUDIO_URL) return;
+  const source = resolveEzanAudioUrl();
+  if (!source.url) return;
   if (ezanAudioEl) {
     ezanAudioEl.pause();
     ezanAudioEl = null;
   }
 
-  ezanAudioEl = new Audio(EZAN_AUDIO_URL);
+  ezanAudioEl = new Audio(source.url);
   ezanAudioEl.preload = "auto";
   ezanAudioEl.volume = 1;
   ezanAudioEl.currentTime = 0;
@@ -1399,6 +1435,11 @@ notificationBell.addEventListener("click", () => {
   activateTab("track");
   trackNotifications.scrollIntoView({ behavior: "smooth", block: "start" });
 });
+
+if (ezanSourceInfo) {
+  const source = resolveEzanAudioUrl();
+  ezanSourceInfo.textContent = source.note;
+}
 
 if (ezanTestBtn) {
   ezanTestBtn.addEventListener("click", () => {

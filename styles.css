@@ -502,6 +502,10 @@ textarea {
   font-weight: 700;
 }
 
+#ezanSourceInfo {
+  font-size: 0.82rem;
+}
+
 .prayer-countdown-hint {
   margin-top: 10px;
   border: 1px dashed #d9eadf;
