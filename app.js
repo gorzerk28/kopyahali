@@ -8,31 +8,10 @@ const LOGIN_LOGS_KEY = "kalp-postasi-login-logs";
 const DAILY_MESSAGES_KEY = "kalp-postasi-daily-messages";
 const OWNER_DEVICE_KEY = "kalp-postasi-owner-device";
 const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
+const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
+const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
 
 const config = window.APP_CONFIG || {};
-const FALLBACK_SITE_PASSWORD = "iremhasekisultan";
-const FALLBACK_ADMIN_PASSWORD = "gorzerk28";
-
-const SITE_PASSWORD = String(
-  config.sitePassword || localStorage.getItem("kalp-postasi-site-password") || FALLBACK_SITE_PASSWORD
-).trim();
-const ADMIN_PASSWORD = String(
-  config.adminPassword || localStorage.getItem("kalp-postasi-admin-password") || FALLBACK_ADMIN_PASSWORD
-).trim();
-const OWNER_SITE_PASSWORD = String(
-  config.ownerSitePassword || localStorage.getItem("kalp-postasi-owner-site-password") || ADMIN_PASSWORD
-).trim();
-const PARTNER_USERNAME = String(
-  config.partnerUsername || localStorage.getItem("kalp-postasi-partner-username") || "partner"
-)
-  .trim()
-  .toLocaleLowerCase("tr-TR");
-const OWNER_USERNAME = String(
-  config.ownerUsername || localStorage.getItem("kalp-postasi-owner-username") || "kalpsorumlusu"
-)
-  .trim()
-  .toLocaleLowerCase("tr-TR");
-
 const SYNC_MODE = (() => {
   const rawMode = String(config.syncMode || "local").trim().toLowerCase();
   if (["local", "remote", "auto"].includes(rawMode)) return rawMode;
@@ -55,6 +34,15 @@ function resolveRemoteStateEndpoint() {
 const REMOTE_STATE_ENDPOINT = resolveRemoteStateEndpoint();
 const NOTIFY_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/notify");
 const PRESENCE_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/presence");
+const AUTH_STATUS_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/status");
+const AUTH_SITE_LOGIN_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/site-login");
+const AUTH_ADMIN_LOGIN_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/admin-login");
+const AUTH_LOGOUT_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/auth/logout");
+const PRAYER_TIMES_ENDPOINT = REMOTE_STATE_ENDPOINT.replace(/\/api\/state$/, "/api/prayer-times");
+const ISTANBUL_TIMEZONE = "Europe/Istanbul";
+const EZAN_AUDIO_URL = String(
+  config.ezanAudioUrl || "https://upload.wikimedia.org/wikipedia/commons/3/32/Adhan.ogg"
+).trim();
 const REMOTE_STATE_IS_SAME_ORIGIN = (() => {
   try {
     return new URL(REMOTE_STATE_ENDPOINT, window.location.origin).origin === window.location.origin;
@@ -70,6 +58,10 @@ const RUNNING_ON_STATIC_ONLY_HOST = STATIC_ONLY_HOSTS.some((host) =>
 const PARTNER_EMAIL = String(config.partnerEmail || "").trim();
 let remoteSyncEnabled = SYNC_MODE !== "local";
 let hasWarnedRemoteUnavailable = false;
+let csrfToken = "";
+
+const DEFAULT_SERVICE_PAUSE_MESSAGE =
+  "Kalp Sorumlusu geçici olarak Sinirli Mod’a geçmiştir. Talep hizmeti kısa süreliğine devre dışıdır. Sistem, uygun koşullar oluştuğunda normal çalışma düzenine dönecektir. Sinirli Mod’un devre dışı bırakılması için Kalp Sorumlusu ile nazik bir iletişim önerilir.";
 
 const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Bugün de kalbim seninle aynı ritimde atıyor. 💓",
@@ -81,6 +73,8 @@ const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Seninle sıradan günler bile kutlama gibi geliyor. ✨",
 ];
 
+const RELATIONSHIP_START_DATE = "2023-03-20";
+
 const state = {
   requests: loadRequests(),
   customNotifications: loadCustomNotifications(),
@@ -88,10 +82,13 @@ const state = {
   loginLogs: loadLoginLogs(),
   dailyMessages: loadDailyMessages(),
   partnerPresence: loadPartnerPresence(),
+  servicePause: loadServicePause(),
   failedSiteAttempts: 0,
 };
 
 const adminDrafts = new Map();
+let stormFlashTimer = null;
+let stormRainInitialized = false;
 
 const body = document.body;
 const appShell = document.getElementById("appShell");
@@ -116,11 +113,20 @@ const adminContent = document.getElementById("adminContent");
 const logoutBtn = document.getElementById("logoutBtn");
 const sendNotificationForm = document.getElementById("sendNotificationForm");
 const sendNotificationInfo = document.getElementById("sendNotificationInfo");
+const sendManualEmailForm = document.getElementById("sendManualEmailForm");
+const sendManualEmailInfo = document.getElementById("sendManualEmailInfo");
+const refreshRequestsBtn = document.getElementById("refreshRequestsBtn");
+const restoreRequestsBtn = document.getElementById("restoreRequestsBtn");
+const syncRecoveryInfo = document.getElementById("syncRecoveryInfo");
 const partnerPresence = document.getElementById("partnerPresence");
 const loveBurstLayer = document.getElementById("loveBurstLayer");
 const brandLogoImage = document.getElementById("brandLogoImage");
 const gateHeroImage = document.getElementById("gateHeroImage");
 const dailyLoveMessage = document.getElementById("dailyLoveMessage");
+const loveMilestoneSummary = document.getElementById("loveMilestoneSummary");
+const loveDayCount = document.getElementById("loveDayCount");
+const loveYearMonth = document.getElementById("loveYearMonth");
+const loveNextAnniversary = document.getElementById("loveNextAnniversary");
 const loveCalendar = document.getElementById("loveCalendar");
 const activityTimeline = document.getElementById("activityTimeline");
 const loginLogs = document.getElementById("loginLogs");
@@ -130,6 +136,21 @@ const dailyMessageInfo = document.getElementById("dailyMessageInfo");
 const dailyMessageResetBtn = document.getElementById("dailyMessageResetBtn");
 const mailStatusBadge = document.getElementById("mailStatusBadge");
 const mailStatusHint = document.getElementById("mailStatusHint");
+const servicePauseBanner = document.getElementById("servicePauseBanner");
+const servicePauseMessage = document.getElementById("servicePauseMessage");
+const toggleServicePauseBtn = document.getElementById("toggleServicePauseBtn");
+const servicePauseAdminInfo = document.getElementById("servicePauseAdminInfo");
+const servicePauseMessageForm = document.getElementById("servicePauseMessageForm");
+const servicePauseMessageInput = document.getElementById("servicePauseMessageInput");
+const servicePauseMessageResetBtn = document.getElementById("servicePauseMessageResetBtn");
+const servicePauseMessageInfo = document.getElementById("servicePauseMessageInfo");
+const stormScene = document.getElementById("stormScene");
+const stormRain = document.getElementById("stormRain");
+const stormFlash = document.getElementById("stormFlash");
+const ezanModeBanner = document.getElementById("ezanModeBanner");
+const ezanModeText = document.getElementById("ezanModeText");
+const prayerCountdownHint = document.getElementById("prayerCountdownHint");
+const ezanTestBtn = document.getElementById("ezanTestBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -184,6 +205,217 @@ function renderDailyLoveMessage() {
 
   const index = getDayOfYear() % state.dailyMessages.length;
   dailyLoveMessage.textContent = state.dailyMessages[index];
+}
+
+function getRelationshipStartDate() {
+  const [year, month, day] = RELATIONSHIP_START_DATE.split("-").map((value) => Number(value));
+  return new Date(year, month - 1, day);
+}
+
+function formatDateShort(date) {
+  return date.toLocaleDateString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function renderLoveMilestone() {
+  if (!loveMilestoneSummary || !loveDayCount || !loveYearMonth || !loveNextAnniversary) return;
+
+  const startDate = getRelationshipStartDate();
+  const now = new Date();
+  const diffMs = now.getTime() - startDate.getTime();
+  const togetherDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1);
+
+  let years = now.getFullYear() - startDate.getFullYear();
+  let months = now.getMonth() - startDate.getMonth();
+  if (now.getDate() < startDate.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+
+  const nextAnniversaryYear =
+    now.getMonth() > startDate.getMonth() ||
+    (now.getMonth() === startDate.getMonth() && now.getDate() >= startDate.getDate())
+      ? now.getFullYear() + 1
+      : now.getFullYear();
+  const nextAnniversary = new Date(nextAnniversaryYear, startDate.getMonth(), startDate.getDate());
+
+  loveMilestoneSummary.textContent = "20.03.2023 tarihinden beri kalbimiz aynı ritimde. O günden beri zaman durdu 💞";
+  loveDayCount.textContent = String(togetherDays);
+  loveYearMonth.textContent = `${Math.max(0, years)}y ${Math.max(0, months)}a`;
+  loveNextAnniversary.textContent = formatDateShort(nextAnniversary);
+}
+
+const prayerRuntime = {
+  dateKey: "",
+  todayTimings: null,
+  tomorrowTimings: null,
+  modeUntilMs: 0,
+  lastAdhanTrigger: "",
+  lastCountdownTrigger: "",
+};
+
+let ezanAudioEl = null;
+
+function getIstanbulNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ISTANBUL_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const byType = {};
+  parts.forEach((part) => {
+    byType[part.type] = part.value;
+  });
+
+  const dateKey = `${byType.year}-${byType.month}-${byType.day}`;
+  const minutes = Number(byType.hour) * 60 + Number(byType.minute);
+  return { dateKey, minutes };
+}
+
+function parseMinute(hhmm = "") {
+  const match = String(hhmm).match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function normalizePrayerTimings(timings = {}) {
+  const order = [
+    ["Fajr", "İmsak"],
+    ["Dhuhr", "Öğle"],
+    ["Asr", "İkindi"],
+    ["Maghrib", "Akşam"],
+    ["Isha", "Yatsı"],
+  ];
+
+  return order
+    .map(([key, label]) => ({ key, label, time: String(timings[key] || "").trim() }))
+    .map((item) => ({ ...item, minute: parseMinute(item.time) }))
+    .filter((item) => Number.isFinite(item.minute));
+}
+
+async function ensurePrayerTimesForDate(dateKey) {
+  if (!remoteSyncEnabled) return false;
+  if (prayerRuntime.dateKey === dateKey && prayerRuntime.todayTimings && prayerRuntime.tomorrowTimings) return true;
+
+  try {
+    const response = await fetch(`${PRAYER_TIMES_ENDPOINT}?date=${encodeURIComponent(dateKey)}`, {
+      cache: "no-store",
+      credentials: REMOTE_FETCH_CREDENTIALS,
+    });
+    if (!response.ok) return false;
+
+    const payload = await response.json();
+    prayerRuntime.dateKey = dateKey;
+    prayerRuntime.todayTimings = normalizePrayerTimings(payload.timings || {});
+    prayerRuntime.tomorrowTimings = normalizePrayerTimings(payload.tomorrowTimings || {});
+    return prayerRuntime.todayTimings.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function activateEzanMode(message) {
+  prayerRuntime.modeUntilMs = Date.now() + 60 * 1000;
+  document.body.classList.add("is-ezan-mode");
+  if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
+  if (ezanModeText) ezanModeText.textContent = message;
+}
+
+function disableEzanModeIfExpired() {
+  if (!prayerRuntime.modeUntilMs) return;
+  if (Date.now() < prayerRuntime.modeUntilMs) return;
+  prayerRuntime.modeUntilMs = 0;
+  document.body.classList.remove("is-ezan-mode");
+  if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
+}
+
+function playEzanAuto() {
+  if (!EZAN_AUDIO_URL) return;
+  if (ezanAudioEl) {
+    ezanAudioEl.pause();
+    ezanAudioEl = null;
+  }
+
+  ezanAudioEl = new Audio(EZAN_AUDIO_URL);
+  ezanAudioEl.preload = "auto";
+  ezanAudioEl.volume = 1;
+  ezanAudioEl.currentTime = 0;
+  ezanAudioEl.play().catch(() => {
+    if (ezanModeText) {
+      ezanModeText.textContent = "Ezan vakti girdi 🤍 Tarayıcı sesi engelledi; ekrana dokununca otomatik deneme tekrar yapılacak.";
+    }
+  });
+}
+
+function renderPrayerCountdown(text = "") {
+  if (!prayerCountdownHint) return;
+  if (!text) {
+    prayerCountdownHint.classList.add("hidden");
+    prayerCountdownHint.textContent = "";
+    return;
+  }
+  prayerCountdownHint.textContent = text;
+  prayerCountdownHint.classList.remove("hidden");
+}
+
+async function tickPrayerMode() {
+  const isUnlocked = sessionStorage.getItem(SITE_SESSION_KEY) === "1";
+  const actor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
+  const isPartnerSession = isUnlocked && actor === "Sevgilin";
+
+  if (!isPartnerSession) {
+    disableEzanModeIfExpired();
+    renderPrayerCountdown("");
+    return;
+  }
+
+  const now = getIstanbulNowParts();
+  const ready = await ensurePrayerTimesForDate(now.dateKey);
+  if (!ready) return;
+
+  const current = prayerRuntime.todayTimings || [];
+  const nextDay = prayerRuntime.tomorrowTimings || [];
+
+  let nextPrayer = current.find((item) => item.minute > now.minutes) || null;
+  if (!nextPrayer && nextDay.length) {
+    nextPrayer = { ...nextDay[0], minute: nextDay[0].minute + 24 * 60 };
+  }
+
+  const exactPrayer = current.find((item) => item.minute === now.minutes);
+  if (exactPrayer) {
+    const adhanTrigger = `${now.dateKey}-${exactPrayer.key}-${now.minutes}`;
+    if (prayerRuntime.lastAdhanTrigger !== adhanTrigger) {
+      prayerRuntime.lastAdhanTrigger = adhanTrigger;
+      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Namaza davet vakti. Allah kabul etsin.`);
+      playEzanAuto();
+    }
+  }
+
+  if (nextPrayer) {
+    const countdownMinute = nextPrayer.minute - 20;
+    const currentMinuteAbsolute = now.minutes;
+    if (countdownMinute === currentMinuteAbsolute) {
+      const countdownKey = `${now.dateKey}-${nextPrayer.key}-${countdownMinute}`;
+      if (prayerRuntime.lastCountdownTrigger !== countdownKey) {
+        prayerRuntime.lastCountdownTrigger = countdownKey;
+        renderPrayerCountdown(`${nextPrayer.label} vaktine 20 dakika kaldı 🌙 Müsaitsen kalbim seninle; Rabbim huzur versin.`);
+      }
+    }
+  }
+
+  disableEzanModeIfExpired();
 }
 
 function loadActivityTimeline() {
@@ -388,6 +620,7 @@ function getSerializableState(options = {}) {
     loginLogs: state.loginLogs,
     dailyMessages: state.dailyMessages,
     partnerPresence: state.partnerPresence,
+    servicePause: state.servicePause,
   };
 
   if (Array.isArray(deletedRequestIds) && deletedRequestIds.length) {
@@ -406,10 +639,65 @@ function isAdminEditorActive() {
   return tag === "textarea" || tag === "select" || tag === "input";
 }
 
+function mergeRequestsPreferLatest(localRequests, remoteRequests) {
+  const local = Array.isArray(localRequests) ? localRequests : [];
+  const remote = Array.isArray(remoteRequests) ? remoteRequests : [];
+  const byId = new Map();
+
+  const score = (item) => {
+    const rev = Number(item?._rev || 0);
+    const updated = Date.parse(item?.updatedAt || "") || 0;
+    return rev * 1_000_000_000_000 + updated;
+  };
+
+  for (const item of local) {
+    if (!item?.id) continue;
+    byId.set(String(item.id), item);
+  }
+
+  for (const item of remote) {
+    if (!item?.id) continue;
+    const id = String(item.id);
+    const existing = byId.get(id);
+    if (!existing || score(item) >= score(existing)) {
+      byId.set(id, item);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function shouldProtectLocalRequestsOnRemotePull(remote) {
+  const localIds = new Set((Array.isArray(state.requests) ? state.requests : []).map((item) => String(item.id)));
+  if (!localIds.size) return false;
+
+  const remoteRequests = Array.isArray(remote?.requests) ? remote.requests : [];
+  const remoteIds = new Set(remoteRequests.map((item) => String(item.id)));
+  const remoteDeleted = new Set(
+    Array.isArray(remote?.deletedRequestIds) ? remote.deletedRequestIds.map((id) => String(id)) : []
+  );
+
+  let missingWithoutDeleteProof = 0;
+  for (const id of localIds) {
+    if (remoteIds.has(id) || remoteDeleted.has(id)) continue;
+    missingWithoutDeleteProof += 1;
+  }
+
+  return missingWithoutDeleteProof > 0;
+}
+
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
 
-  state.requests = Array.isArray(remote.requests) ? remote.requests : state.requests;
+  const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
+  if (protectLocalRequests) {
+    const backup = loadRequestsBackup();
+    if (backup.length > state.requests.length) {
+      state.requests = mergeRequestsPreferLatest(state.requests, backup);
+    }
+  }
+
+  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -423,6 +711,22 @@ function applyRemoteState(remote) {
   state.partnerPresence = remote.partnerPresence && typeof remote.partnerPresence === "object"
     ? remote.partnerPresence
     : state.partnerPresence;
+  state.servicePause = remote.servicePause && typeof remote.servicePause === "object"
+    ? {
+        active: Boolean(remote.servicePause.active),
+        reason: String(remote.servicePause.reason || "").trim(),
+        updatedAt: remote.servicePause.updatedAt || null,
+      }
+    : state.servicePause;
+
+  if (protectLocalRequests && remoteSyncEnabled) {
+    const now = Date.now();
+    if (now - lastProtectiveRemotePushAt > 15000) {
+      lastProtectiveRemotePushAt = now;
+      bellInfo.textContent = "Uyarı: Sunucudan eksik veri geldi, yerel talepler korundu ve tekrar senkronlanıyor.";
+      pushRemoteState({ force: true });
+    }
+  }
 
   suppressRemotePush = true;
   saveRequests();
@@ -431,6 +735,7 @@ function applyRemoteState(remote) {
   saveLoginLogs();
   saveDailyMessages();
   savePartnerPresence();
+  saveServicePause();
   suppressRemotePush = false;
 
   renderTrackNotifications();
@@ -442,6 +747,59 @@ function applyRemoteState(remote) {
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderServicePauseUI();
+}
+
+function getApiHeaders(extraHeaders = {}, method = "GET") {
+  const headers = { ...extraHeaders };
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const needsCsrf = ["POST", "PUT", "PATCH", "DELETE"].includes(normalizedMethod);
+  if (needsCsrf && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+  return headers;
+}
+
+async function serverLogout() {
+  if (!remoteSyncEnabled) return;
+  try {
+    await fetch(AUTH_LOGOUT_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({}, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+    });
+  } catch {
+    // logout isteği başarısız olsa da yerel oturumu kapat
+  }
+}
+
+async function syncSessionsFromServer() {
+  if (!remoteSyncEnabled) return;
+  try {
+    const response = await fetch(AUTH_STATUS_ENDPOINT, {
+      method: "GET",
+      credentials: REMOTE_FETCH_CREDENTIALS,
+    });
+    const payload = await response.json().catch(() => ({}));
+    const actor = String(payload.actor || "");
+    csrfToken = String(payload.csrfToken || "");
+
+    setSiteSession(Boolean(payload.siteAuthenticated));
+    if (payload.siteAuthenticated && actor) {
+      sessionStorage.setItem(SITE_LOGIN_ACTOR_KEY, actor);
+    }
+
+    setAdminSession(Boolean(payload.adminAuthenticated));
+
+    if (payload.siteAuthenticated || payload.adminAuthenticated) {
+      await pullRemoteState();
+      renderServicePauseUI();
+    }
+  } catch {
+    csrfToken = "";
+    setSiteSession(false);
+    setAdminSession(false);
+  }
 }
 
 let remotePushTimer = null;
@@ -449,6 +807,7 @@ let suppressRemotePush = false;
 let hasPendingRemoteChanges = false;
 let hasHydratedRemoteState = false;
 let remoteHydrationPromise = null;
+let lastProtectiveRemotePushAt = 0;
 
 function notifyRemoteUnavailable(reason = "") {
   if (hasWarnedRemoteUnavailable) return;
@@ -495,7 +854,7 @@ async function pushPresenceState() {
   try {
     await fetch(PRESENCE_ENDPOINT, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "PUT"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({ partnerPresence: state.partnerPresence }),
     });
@@ -521,7 +880,7 @@ async function pushRemoteState(options = {}) {
   try {
     const response = await fetch(REMOTE_STATE_ENDPOINT, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "PUT"),
       body: JSON.stringify(getSerializableState({ deletedRequestIds })),
       credentials: REMOTE_FETCH_CREDENTIALS,
     });
@@ -588,27 +947,6 @@ async function ensureRemoteHydrated() {
   } finally {
     remoteHydrationPromise = null;
   }
-}
-
-function normalizeUsername(value) {
-  return String(value || "").trim().toLocaleLowerCase("tr-TR");
-}
-
-function resolveSiteLoginActor(username, password) {
-  const normalizedUsername = normalizeUsername(username);
-
-  if (normalizedUsername === PARTNER_USERNAME && password === SITE_PASSWORD) {
-    return "Sevgilin";
-  }
-
-  if (
-    normalizedUsername === OWNER_USERNAME &&
-    (password === OWNER_SITE_PASSWORD || password === ADMIN_PASSWORD)
-  ) {
-    return "Kalp Sorumlusu";
-  }
-
-  return "";
 }
 
 let ownsPartnerPresenceSession = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) === "Sevgilin";
@@ -679,6 +1017,129 @@ function savePartnerPresence() {
   localStorage.setItem(PRESENCE_KEY, JSON.stringify(state.partnerPresence));
 }
 
+function loadServicePause() {
+  const raw = localStorage.getItem(SERVICE_PAUSE_KEY);
+  if (!raw) return { active: false, reason: "", updatedAt: null };
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      active: Boolean(parsed.active),
+      reason: String(parsed.reason || "").trim(),
+      updatedAt: parsed.updatedAt || null,
+    };
+  } catch {
+    return { active: false, reason: "", updatedAt: null };
+  }
+}
+
+function saveServicePause() {
+  localStorage.setItem(SERVICE_PAUSE_KEY, JSON.stringify(state.servicePause));
+  queueRemotePush();
+}
+
+function getServicePauseMessage() {
+  const customReason = String(state.servicePause?.reason || "").trim();
+  if (customReason) return customReason;
+  return DEFAULT_SERVICE_PAUSE_MESSAGE;
+}
+
+function renderServicePauseEditor() {
+  if (!servicePauseMessageInput) return;
+
+  const customReason = String(state.servicePause?.reason || "").trim();
+  servicePauseMessageInput.value = customReason || DEFAULT_SERVICE_PAUSE_MESSAGE;
+}
+
+function ensureStormRain() {
+  if (!stormRain || stormRainInitialized) return;
+  const dropCount = 100;
+
+  for (let i = 0; i < dropCount; i += 1) {
+    const drop = document.createElement("span");
+    drop.className = "rain-drop";
+    drop.style.left = `${Math.random() * 100}%`;
+    drop.style.animationDelay = `${Math.random() * 1.8}s`;
+    drop.style.animationDuration = `${0.55 + Math.random() * 0.8}s`;
+    stormRain.appendChild(drop);
+  }
+
+  stormRainInitialized = true;
+}
+
+function startStormFlash() {
+  if (!stormFlash || stormFlashTimer) return;
+
+  const loop = () => {
+    if (!document.body.classList.contains("is-storm-mode")) {
+      stormFlash.classList.remove("active");
+      stormFlashTimer = null;
+      return;
+    }
+
+    const wait = 1600 + Math.random() * 3200;
+    stormFlashTimer = setTimeout(() => {
+      stormFlash.classList.add("active");
+      setTimeout(() => stormFlash.classList.remove("active"), 140);
+      loop();
+    }, wait);
+  };
+
+  loop();
+}
+
+function stopStormFlash() {
+  if (stormFlashTimer) {
+    clearTimeout(stormFlashTimer);
+    stormFlashTimer = null;
+  }
+
+  if (stormFlash) {
+    stormFlash.classList.remove("active");
+  }
+}
+
+function renderServicePauseUI() {
+  if (!servicePauseBanner || !requestForm) return;
+
+  const isPaused = Boolean(state.servicePause?.active);
+  const loginActor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
+  const isPartnerView = loginActor === "Sevgilin";
+  const enableStormMode = isPaused && isPartnerView;
+
+  requestForm.classList.toggle("hidden", isPaused);
+  servicePauseBanner.classList.toggle("hidden", !isPaused);
+
+  document.body.classList.toggle("is-storm-mode", enableStormMode);
+  if (stormScene) {
+    stormScene.classList.toggle("hidden", !enableStormMode);
+  }
+
+  if (enableStormMode) {
+    ensureStormRain();
+    startStormFlash();
+    activateTab("create");
+  } else {
+    stopStormFlash();
+  }
+
+  if (servicePauseMessage) {
+    servicePauseMessage.textContent = getServicePauseMessage();
+  }
+
+  if (toggleServicePauseBtn) {
+    toggleServicePauseBtn.textContent = isPaused ? "Sinirli Modu Kapat" : "Sinirli Modu Aç";
+  }
+
+  if (servicePauseAdminInfo) {
+    servicePauseAdminInfo.textContent = isPaused
+      ? "Sinirli mod aktif: Partner ekranı kısıtlı erişim ekranına geçti."
+      : "Sinirli mod kapalı: Partner normal şekilde talep oluşturabilir.";
+  }
+
+  renderServicePauseEditor();
+}
+
 function playLoveBurst() {
   if (!loveBurstLayer) return;
 
@@ -716,6 +1177,22 @@ function loadRequests() {
   }
 }
 
+function loadRequestsBackup() {
+  const raw = localStorage.getItem(REQUESTS_BACKUP_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRequestsBackup() {
+  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(state.requests));
+}
+
 function loadCustomNotifications() {
   const raw = localStorage.getItem(CUSTOM_NOTIFICATIONS_KEY);
   if (!raw) return [];
@@ -727,6 +1204,7 @@ function loadCustomNotifications() {
     return parsed.map((item) => ({
       ...item,
       read: item.read ?? false,
+      target: item.target === "admin" ? "admin" : "partner",
     }));
   } catch {
     return [];
@@ -735,6 +1213,7 @@ function loadCustomNotifications() {
 
 function saveRequests() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.requests));
+  saveRequestsBackup();
   queueRemotePush();
 }
 
@@ -764,6 +1243,7 @@ function setSiteSession(isActive) {
   appShell.setAttribute("aria-hidden", String(!isActive));
   updatePresenceHeartbeat();
   renderPresenceBadge();
+  renderServicePauseUI();
 }
 
 function activateTab(tabId) {
@@ -792,15 +1272,31 @@ window.addEventListener("storage", () => {
   renderDailyMessageEditor();
 });
 
-siteLoginForm.addEventListener("submit", (event) => {
+siteLoginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const enteredUsername = String(siteLoginForm.elements.siteUsername.value || "").trim();
   const enteredPassword = String(siteLoginForm.elements.sitePassword.value || "").trim();
 
-  const actor = resolveSiteLoginActor(enteredUsername, enteredPassword);
+  try {
+    const response = await fetch(AUTH_SITE_LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({ username: enteredUsername, password: enteredPassword }),
+    });
 
-  if (actor) {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok || !payload.actor) {
+      const retryAfterSec = Number(payload.retryAfterSec || 0);
+      siteLoginInfo.textContent = retryAfterSec > 0
+        ? `Çok fazla hatalı deneme. ${retryAfterSec} saniye sonra tekrar dene.`
+        : "Kullanıcı adı veya şifre yanlış. Lütfen tekrar deneyin.";
+      return;
+    }
+
+    csrfToken = String(payload.csrfToken || csrfToken);
+    const actor = String(payload.actor);
     if (actor === "Kalp Sorumlusu") {
       localStorage.setItem(OWNER_DEVICE_KEY, "1");
     }
@@ -815,36 +1311,26 @@ siteLoginForm.addEventListener("submit", (event) => {
       addActivity("admin", "Kalp Sorumlusu site girişini yaptı.");
     }
 
+    await pullRemoteState();
+    renderServicePauseUI();
+
     addLoginLog(actor, "siteye giriş yaptı.");
     siteLoginInfo.textContent = "";
     siteLoginForm.reset();
-    return;
+  } catch {
+    siteLoginInfo.textContent = "Giriş sırasında bir ağ hatası oluştu. Lütfen tekrar deneyin.";
   }
-
-  state.failedSiteAttempts += 1;
-
-  if (state.failedSiteAttempts >= 5) {
-    siteLoginInfo.textContent =
-      "Çok fazla hatalı deneme yapıldı. Lütfen 30 saniye sonra tekrar deneyin.";
-    siteLoginForm.querySelector("button").disabled = true;
-    setTimeout(() => {
-      state.failedSiteAttempts = 0;
-      siteLoginForm.querySelector("button").disabled = false;
-      siteLoginInfo.textContent = "";
-    }, 30000);
-    return;
-  }
-
-  siteLoginInfo.textContent = "Kullanıcı adı veya şifre yanlış. Lütfen tekrar deneyin.";
 });
 
-siteLogoutBtn.addEventListener("click", () => {
+siteLogoutBtn.addEventListener("click", async () => {
   const actor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) || "Site Kullanıcısı";
 
   if (actor === "Sevgilin") {
     ownsPartnerPresenceSession = true;
   }
 
+  await serverLogout();
+  csrfToken = "";
   setAdminSession(false);
   setSiteSession(false);
 
@@ -860,7 +1346,13 @@ siteLogoutBtn.addEventListener("click", () => {
   activateTab("create");
 });
 
+function getCurrentSessionActor() {
+  return String(sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY) || "");
+}
+
 function getUnreadRequestNotifications() {
+  if (getCurrentSessionActor() !== "Sevgilin") return [];
+
   return state.requests
     .filter((item) => !item.partnerNotified && item.updatedAt !== item.createdAt)
     .map((item) => ({
@@ -872,8 +1364,11 @@ function getUnreadRequestNotifications() {
 }
 
 function getUnreadCustomNotifications() {
+  const actor = getCurrentSessionActor();
+  const target = actor === "Kalp Sorumlusu" ? "admin" : "partner";
+
   return state.customNotifications
-    .filter((item) => !item.read)
+    .filter((item) => !item.read && item.target === target)
     .map((item) => ({
       type: "custom",
       id: item.id,
@@ -905,6 +1400,13 @@ notificationBell.addEventListener("click", () => {
   trackNotifications.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
+if (ezanTestBtn) {
+  ezanTestBtn.addEventListener("click", () => {
+    playEzanAuto();
+    activateEzanMode("Ezan testi çalıyor 🤍");
+  });
+}
+
 function createTrackNotification(item) {
   const template = document.getElementById("trackNotificationTemplate");
   const node = template.content.firstElementChild.cloneNode(true);
@@ -922,7 +1424,20 @@ function createTrackNotification(item) {
       const target = state.customNotifications.find((notif) => notif.id === item.id);
       if (!target) return;
 
+      const actor = getCurrentSessionActor();
       target.read = true;
+
+      if (actor === "Sevgilin" && target.target === "partner") {
+        state.customNotifications.push({
+          id: `n-seen-${Date.now().toString(36)}`,
+          title: "Bildirim Görüldü",
+          message: `Sevgilin "${target.title}" bildirimini gördü.`,
+          read: false,
+          target: "admin",
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       saveCustomNotifications();
     }
 
@@ -1049,7 +1564,7 @@ async function sendEmailNotification(item, status, result) {
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
@@ -1067,6 +1582,7 @@ async function sendEmailNotification(item, status, result) {
       ok: false,
       message:
         errorPayload.hint ||
+        errorPayload.details ||
         "Otomatik mail gönderilemedi. Render ortam değişkenlerini kontrol et (EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM).",
     };
   } catch {
@@ -1074,6 +1590,82 @@ async function sendEmailNotification(item, status, result) {
       ok: false,
       message: "Sunucuya bağlanılamadı. Otomatik gönderim için Render servisinin ayakta olduğundan emin ol.",
     };
+  }
+}
+
+
+async function sendManualEmail(subject, text) {
+  if (!PARTNER_EMAIL) {
+    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
+  }
+
+  try {
+    const response = await fetch(NOTIFY_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({
+        channel: "email",
+        to: PARTNER_EMAIL,
+        subject,
+        text,
+      }),
+    });
+
+    if (response.ok) {
+      return { ok: true, message: "Mail gönderildi 💌" };
+    }
+
+    const errorPayload = await response.json().catch(() => ({}));
+    return {
+      ok: false,
+      message:
+        errorPayload.hint ||
+        errorPayload.details ||
+        "Mail gönderilemedi. Render ortam değişkenlerini kontrol et (EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM).",
+    };
+  } catch {
+    return {
+      ok: false,
+      message: "Sunucuya bağlanılamadı. Render servisinin ayakta olduğundan emin ol.",
+    };
+  }
+}
+
+function buildOwnerTelegramText(request) {
+  return [
+    "📩 Yeni Talep Oluşturuldu",
+    `Başlık: ${request.title}`,
+    `Kategori: ${request.category}`,
+    `Öncelik: ${request.priority}`,
+    `Tarih: ${request.targetDate || "Belirtilmedi"}`,
+    "",
+    `Detay: ${request.detail || "Detay yok"}`,
+  ].join("\n");
+}
+
+async function notifyOwnerOnNewRequest(request) {
+  try {
+    const response = await fetch(NOTIFY_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({
+        channel: "telegram",
+        text: buildOwnerTelegramText(request),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      console.warn("Telegram bildirimi gönderilemedi:", payload.error || response.status);
+      return { ok: false, message: payload.hint || payload.error || "Telegram bildirimi başarısız." };
+    }
+
+    return { ok: true, message: "Telegram bildirimi gönderildi." };
+  } catch (error) {
+    console.warn("Telegram bildirimi hatası:", error);
+    return { ok: false, message: "Telegram servisine bağlanılamadı." };
   }
 }
 
@@ -1134,7 +1726,7 @@ function createAdminCard(item) {
     target._rev = Number(target._rev || 0) + 1;
 
     saveRequests();
-    await pushRemoteState();
+    await pushRemoteState({ force: true });
     adminDrafts.delete(String(item.id));
     addActivity("admin", `Talep güncellendi: ${item.title} → ${status}`);
 
@@ -1204,6 +1796,63 @@ function renderAdminList() {
   ordered.forEach((item) => adminList.appendChild(createAdminCard(item)));
 }
 
+async function restoreRequestsFromBackup() {
+  const backup = loadRequestsBackup();
+  if (!backup.length) {
+    await pullRemoteState();
+    if (state.requests.length) {
+      return {
+        ok: true,
+        message: "Yerel yedek boştu ama talepler sunucudan yenilenip geri getirildi.",
+      };
+    }
+    return {
+      ok: false,
+      message: "Yerel yedekte talep bulunamadı. Bu cihazda yedek yoksa önce 'Talep Yenile' ile sunucudan çekmeyi dene.",
+    };
+  }
+
+  const beforeCount = state.requests.length;
+  state.requests = mergeRequestsPreferLatest(state.requests, backup);
+  const afterCount = state.requests.length;
+  saveRequests();
+  renderTrackList();
+  renderAdminList();
+  renderTrackNotifications();
+
+  if (afterCount <= beforeCount) {
+    return { ok: false, message: "Yedekte yeni bir talep bulunamadı." };
+  }
+
+  await pushRemoteState({ force: true });
+  return { ok: true, message: `${afterCount - beforeCount} talep yedekten geri yüklendi ve sunucuya gönderildi.` };
+}
+
+if (refreshRequestsBtn) {
+  refreshRequestsBtn.addEventListener("click", async () => {
+    await pullRemoteState();
+    renderTrackList();
+    renderAdminList();
+    renderTrackNotifications();
+    if (syncRecoveryInfo) {
+      syncRecoveryInfo.textContent = "Talepler sunucudan yenilendi.";
+    }
+  });
+}
+
+if (restoreRequestsBtn) {
+  restoreRequestsBtn.addEventListener("click", async () => {
+    const result = await restoreRequestsFromBackup();
+    if (syncRecoveryInfo) {
+      syncRecoveryInfo.textContent = result.message;
+    }
+    if (result.ok) {
+      addActivity("admin", "Yedekten talep geri yükleme işlemi çalıştırıldı.");
+      playCelebrationBurst("soft");
+    }
+  });
+}
+
 sendNotificationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await syncBeforeMutation();
@@ -1217,6 +1866,7 @@ sendNotificationForm.addEventListener("submit", async (event) => {
     title,
     message,
     read: false,
+    target: "partner",
     createdAt: new Date().toISOString(),
   };
 
@@ -1231,14 +1881,42 @@ sendNotificationForm.addEventListener("submit", async (event) => {
   addActivity("admin", `Özel bildirim gönderildi: ${title}`);
   playCelebrationBurst("soft");
 });
+if (sendManualEmailForm) {
+  sendManualEmailForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(sendManualEmailForm);
+    const subject = String(formData.get("mailSubject") || "").trim();
+    const text = String(formData.get("mailBody") || "").trim();
+
+    if (!subject || !text) {
+      sendManualEmailInfo.textContent = "Başlık ve konu alanı zorunlu.";
+      return;
+    }
+
+    const result = await sendManualEmail(subject, text);
+    sendManualEmailInfo.textContent = result.message;
+
+    if (result.ok) {
+      sendManualEmailForm.reset();
+      addActivity("admin", `Manuel mail gönderildi: ${subject}`);
+      playCelebrationBurst("soft");
+    }
+  });
+}
+
+
+function createRequestId() {
+  const timePart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 8);
+  return `r-${timePart}-${randomPart}`;
+}
 
 requestForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await syncBeforeMutation();
-
   const formData = new FormData(requestForm);
   const request = {
-    id: Date.now().toString().slice(-6),
+    id: createRequestId(),
     title: formData.get("title").toString().trim(),
     category: formData.get("category").toString(),
     priority: formData.get("priority").toString(),
@@ -1254,12 +1932,16 @@ requestForm.addEventListener("submit", async (event) => {
 
   state.requests.push(request);
   saveRequests();
-  await pushRemoteState();
+  await pushRemoteState({ force: true });
 
   requestForm.reset();
   formInfo.textContent = "Talebin başarıyla gönderildi! Talep Takip sekmesinden durumu izleyebilirsin.";
 
   addActivity("partner", `Yeni talep oluşturuldu: ${request.title}`);
+  const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
+  if (!ownerNotifyResult.ok) {
+    bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
+  }
 
   renderTrackNotifications();
   renderTrackList();
@@ -1283,24 +1965,42 @@ function setAdminSession(isActive) {
   }
 }
 
-adminLoginForm.addEventListener("submit", (event) => {
+adminLoginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const entered = String(adminLoginForm.elements.password.value || "").trim();
 
-  if (entered === ADMIN_PASSWORD) {
+  try {
+    const response = await fetch(AUTH_ADMIN_LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({ password: entered }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    csrfToken = String(payload.csrfToken || csrfToken);
+    if (!response.ok || !payload.ok) {
+      const retryAfterSec = Number(payload.retryAfterSec || 0);
+      loginInfo.textContent = retryAfterSec > 0
+        ? `Çok fazla hatalı deneme. ${retryAfterSec} saniye sonra tekrar dene.`
+        : "Şifre yanlış. Bu alan sadece Kalp Sorumlusu kullanımına açık.";
+      return;
+    }
+
     localStorage.setItem(OWNER_DEVICE_KEY, "1");
     setAdminSession(true);
     addActivity("admin", "Kalp Sorumlusu panele giriş yaptı.");
     addLoginLog("Kalp Sorumlusu", "panele giriş yaptı.");
     loginInfo.textContent = "";
     adminLoginForm.reset();
-    return;
+  } catch {
+    loginInfo.textContent = "Panel girişinde ağ hatası oluştu. Lütfen tekrar dene.";
   }
-
-  loginInfo.textContent = "Şifre yanlış. Bu alan sadece Kalp Sorumlusu kullanımına açık.";
 });
 
-logoutBtn.addEventListener("click", () => {
+logoutBtn.addEventListener("click", async () => {
+  await serverLogout();
+  csrfToken = "";
   setAdminSession(false);
   addActivity("admin", "Kalp Sorumlusu panelden çıkış yaptı.");
   addLoginLog("Kalp Sorumlusu", "panelden çıkış yaptı.");
@@ -1341,20 +2041,95 @@ if (dailyMessageResetBtn) {
   });
 }
 
-if (!SITE_PASSWORD || !ADMIN_PASSWORD) {
-  siteLoginInfo.textContent =
-    "Şifre yapılandırması yüklenemedi. config.js kontrol et veya fallback şifreleri kullan.";
+if (toggleServicePauseBtn) {
+  toggleServicePauseBtn.addEventListener("click", async () => {
+    const nextActive = !Boolean(state.servicePause?.active);
+
+    await syncBeforeMutation();
+
+    state.servicePause = {
+      active: nextActive,
+      reason: String(state.servicePause?.reason || "").trim(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    addActivity(
+      "admin",
+      nextActive
+        ? "Sinirli mod aktif edildi: talep oluşturma geçici olarak kapatıldı."
+        : "Sinirli mod kapatıldı: talep oluşturma yeniden açıldı."
+    );
+  });
+}
+
+if (servicePauseMessageForm) {
+  servicePauseMessageForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await syncBeforeMutation();
+
+    const nextMessage = String(servicePauseMessageInput?.value || "").trim();
+    if (!nextMessage) {
+      if (servicePauseMessageInfo) {
+        servicePauseMessageInfo.textContent = "Mesaj boş olamaz. Varsayılan için sıfırla butonunu kullan.";
+      }
+      return;
+    }
+
+    state.servicePause = {
+      ...(state.servicePause || {}),
+      reason: nextMessage === DEFAULT_SERVICE_PAUSE_MESSAGE ? "" : nextMessage,
+      updatedAt: new Date().toISOString(),
+      active: Boolean(state.servicePause?.active),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    if (servicePauseMessageInfo) {
+      servicePauseMessageInfo.textContent = "Sinirli mod mesajı güncellendi.";
+    }
+    addActivity("admin", "Sinirli mod mesajı güncellendi.");
+  });
+}
+
+if (servicePauseMessageResetBtn) {
+  servicePauseMessageResetBtn.addEventListener("click", async () => {
+    await syncBeforeMutation();
+
+    state.servicePause = {
+      ...(state.servicePause || {}),
+      reason: "",
+      updatedAt: new Date().toISOString(),
+      active: Boolean(state.servicePause?.active),
+    };
+
+    saveServicePause();
+    await pushRemoteState();
+    renderServicePauseUI();
+
+    if (servicePauseMessageInfo) {
+      servicePauseMessageInfo.textContent = "Sinirli mod mesajı varsayılan metne döndürüldü.";
+    }
+    addActivity("admin", "Sinirli mod mesajı varsayılan metne döndürüldü.");
+  });
 }
 
 renderDailyLoveMessage();
+renderLoveMilestone();
 renderDailyMessageEditor();
+renderServicePauseUI();
 renderTrackNotifications();
 renderTrackList();
 renderActivityTimeline();
 renderLoginLogs();
 renderMailSetupStatus();
-setAdminSession(localStorage.getItem(ADMIN_SESSION_KEY) === "1");
-setSiteSession(sessionStorage.getItem(SITE_SESSION_KEY) === "1");
+setAdminSession(false);
+setSiteSession(false);
 renderPresenceBadge();
 if (remoteSyncEnabled) {
   if (RUNNING_ON_STATIC_ONLY_HOST && REMOTE_STATE_IS_SAME_ORIGIN) {
@@ -1362,9 +2137,23 @@ if (remoteSyncEnabled) {
     notifyRemoteUnavailable("static-host");
   } else {
     pullRemoteState();
-    setInterval(pullRemoteState, 7000);
+    setInterval(pullRemoteState, 2000);
+
+    window.addEventListener("focus", () => {
+      pullRemoteState();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        pullRemoteState();
+      }
+    });
   }
 }
 
+syncSessionsFromServer();
+
 setInterval(updatePresenceHeartbeat, 5000);
 setInterval(renderPresenceBadge, 5000);
+setInterval(renderLoveMilestone, 60 * 1000);
+setInterval(tickPrayerMode, 30 * 1000);
+tickPrayerMode();
