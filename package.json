@@ -5,7 +5,8 @@
   "description": "Kalp Postasi request tracker",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check app.js && node --check config.js && node --check server.js"
+    "check": "npm run verify:clean-source && node --check app.js && node --check config.js && node --check server.js",
+    "verify:clean-source": "node scripts/verify-clean-source.js"
   },
   "engines": {
     "node": ">=18"
