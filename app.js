@@ -1432,6 +1432,11 @@ function saveRequests() {
   queueRemotePush();
 }
 
+function persistRequestBackupsNow() {
+  saveRequestsBackup();
+  saveRequestsBackupHistory();
+}
+
 function saveCustomNotifications() {
   localStorage.setItem(CUSTOM_NOTIFICATIONS_KEY, JSON.stringify(state.customNotifications));
   queueRemotePush();
@@ -1931,6 +1936,7 @@ function createAdminCard(item) {
   const form = node.querySelector('[data-role="updateForm"]');
   const notifyBtn = node.querySelector('[data-role="notifyBtn"]');
   const mailBtn = node.querySelector('[data-role="mailBtn"]');
+  const archiveBtn = node.querySelector('[data-role="archiveBtn"]');
   const deleteBtn = node.querySelector('[data-role="deleteBtn"]');
   const notifyInfo = node.querySelector('[data-role="notifyInfo"]');
 
@@ -2007,9 +2013,7 @@ function createAdminCard(item) {
     mailBtn.disabled = false;
   });
 
-  deleteBtn.textContent = "Talebi Arşive Al ♾️";
-
-  deleteBtn.addEventListener("click", async () => {
+  archiveBtn.addEventListener("click", async () => {
     const confirmed = confirm(
       `"${item.title}" talebini arşive almak istiyor musun? Talep verisi kalıcı olarak saklanır, silinmez.`
     );
@@ -2031,6 +2035,25 @@ function createAdminCard(item) {
     await pushRemoteState({ force: true });
     adminDrafts.delete(String(item.id));
     addActivity("admin", `Talep arşive alındı (silinmedi): ${item.title}`);
+
+    renderTrackNotifications();
+    renderTrackList();
+    renderAdminList();
+  });
+
+  deleteBtn.addEventListener("click", async () => {
+    const confirmed = confirm(
+      `"${item.title}" talebini kalıcı silmek üzeresin. Bu işlem geri alınamaz. Devam etmek istiyor musun?`
+    );
+    if (!confirmed) return;
+
+    await syncBeforeMutation();
+
+    state.requests = state.requests.filter((req) => req.id !== item.id);
+    saveRequests();
+    await pushRemoteState({ force: true, deletedRequestIds: [item.id] });
+    adminDrafts.delete(String(item.id));
+    addActivity("admin", `Talep kalıcı silindi: ${item.title}`);
 
     renderTrackNotifications();
     renderTrackList();
@@ -2426,4 +2449,9 @@ setInterval(renderPresenceBadge, 5000);
 setInterval(renderLoveMilestone, 60 * 1000);
 setInterval(tickPrayerMode, 30 * 1000);
 setInterval(renderPrayerAdminMonitor, 5000);
+setInterval(persistRequestBackupsNow, 30 * 1000);
 tickPrayerMode();
+
+window.addEventListener("beforeunload", () => {
+  persistRequestBackupsNow();
+});
