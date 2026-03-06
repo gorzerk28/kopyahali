@@ -1,14 +1,12 @@
 window.APP_CONFIG = {
-  // Sevgilin için kullanıcı adı + site giriş şifresi
-  partnerUsername: "güzel kızım",
-  sitePassword: "iremhasekisultan",
-  // Sadece sana özel admin panel şifresi
-  adminPassword: "gorzerk28",
-  // (Opsiyonel) Kalp Sorumlusu'nun site kapısından giriş bilgileri
-  ownerUsername: "kalpsorumlusu",
-  ownerSitePassword: "gorzerk28",
+  // Güvenlik notu:
+  // Şifre/kullanıcı adı gibi gizli bilgiler burada tutulmaz.
+  // Bunları Render Environment Variables üzerinden yönet:
+  // SITE_USERNAME, SITE_PASSWORD, OWNER_USERNAME, OWNER_SITE_PASSWORD, ADMIN_PASSWORD, AUTH_SECRET
+
   // Talep cevaplandığında bildirimin gideceği e-posta
   partnerEmail: "iremm222aksoy@gmail.com",
+
   // Senkron modu:
   // local  -> sadece bu cihazda çalışır (farklı cihazda talep görünmez).
   // remote -> farklı cihazların aynı talepleri görmesi için zorunlu.
