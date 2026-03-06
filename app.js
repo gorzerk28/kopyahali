@@ -151,6 +151,13 @@ const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
 const ezanTestBtn = document.getElementById("ezanTestBtn");
 const ezanSourceInfo = document.getElementById("ezanSourceInfo");
+const prayerAdminStatus = document.getElementById("prayerAdminStatus");
+const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
+const prayerAdminNext = document.getElementById("prayerAdminNext");
+const prayerAdminAudio = document.getElementById("prayerAdminAudio");
+const prayerAdminInfo = document.getElementById("prayerAdminInfo");
+const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
+const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -444,6 +451,76 @@ function renderPrayerCountdown(text = "") {
   }
   prayerCountdownHint.textContent = text;
   prayerCountdownHint.classList.remove("hidden");
+}
+
+function formatMinuteDiff(totalMinutes = 0) {
+  if (!Number.isFinite(totalMinutes)) return "-";
+  const normalized = Math.max(0, Math.floor(totalMinutes));
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  if (h <= 0) return `${m} dk`;
+  return `${h} sa ${m} dk`;
+}
+
+async function renderPrayerAdminMonitor(options = {}) {
+  if (!prayerAdminStatus || !prayerAdminLastTrigger || !prayerAdminNext || !prayerAdminAudio) return;
+
+  const { force = false } = options;
+  const adminSessionActive = localStorage.getItem(ADMIN_SESSION_KEY) === "1";
+
+  if (!adminSessionActive) {
+    prayerAdminStatus.textContent = "Admin girişi bekleniyor";
+    prayerAdminLastTrigger.textContent = "-";
+    prayerAdminNext.textContent = "-";
+    prayerAdminAudio.textContent = "-";
+    return;
+  }
+
+  if (!remoteSyncEnabled) {
+    prayerAdminStatus.textContent = "Sunucu bağlantısı yok";
+    prayerAdminNext.textContent = "Vakit verisi alınamadı";
+    prayerAdminAudio.textContent = "Ses kapalı";
+    prayerAdminLastTrigger.textContent = prayerRuntime.lastAdhanTrigger || "-";
+    return;
+  }
+
+  const now = getIstanbulNowParts();
+  const needsPrayerFetch = force || prayerRuntime.dateKey !== now.dateKey || !prayerRuntime.todayTimings;
+  if (needsPrayerFetch) {
+    await ensurePrayerTimesForDate(now.dateKey);
+  }
+
+  const modeLeftMs = Math.max(0, prayerRuntime.modeUntilMs - Date.now());
+  const modeActive = modeLeftMs > 0;
+  prayerAdminStatus.textContent = modeActive
+    ? `Aktif (${Math.ceil(modeLeftMs / 1000)} sn kaldı)`
+    : "Pasif";
+
+  const audioLeftMs = Math.max(0, prayerRuntime.audioUntilMs - Date.now());
+  const audioActive = audioLeftMs > 0;
+  prayerAdminAudio.textContent = audioActive
+    ? `Ezan çalıyor (${Math.ceil(audioLeftMs / 1000)} sn kaldı)`
+    : "Ses kapalı";
+
+  const todayTimings = prayerRuntime.todayTimings || [];
+  const tomorrowTimings = prayerRuntime.tomorrowTimings || [];
+  let nextPrayer = todayTimings.find((item) => item.minute > now.minutes) || null;
+  let minutesLeft = 0;
+
+  if (nextPrayer) {
+    minutesLeft = nextPrayer.minute - now.minutes;
+  } else if (tomorrowTimings.length) {
+    nextPrayer = tomorrowTimings[0];
+    minutesLeft = nextPrayer.minute + 24 * 60 - now.minutes;
+  }
+
+  prayerAdminNext.textContent = nextPrayer
+    ? `${nextPrayer.label} (${nextPrayer.time}) • ${formatMinuteDiff(minutesLeft)} kaldı`
+    : "Namaz vakti verisi yok";
+
+  prayerAdminLastTrigger.textContent = prayerRuntime.lastAdhanTrigger
+    ? prayerRuntime.lastAdhanTrigger
+    : "Henüz tetiklenmedi";
 }
 
 async function tickPrayerMode() {
@@ -1491,6 +1568,27 @@ if (ezanTestBtn) {
   ezanTestBtn.addEventListener("click", () => {
     playEzanAuto();
     activateEzanMode("Ezan testi çalıyor 🤍");
+    renderPrayerAdminMonitor();
+  });
+}
+
+if (prayerAdminRefreshBtn) {
+  prayerAdminRefreshBtn.addEventListener("click", async () => {
+    await renderPrayerAdminMonitor({ force: true });
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Namaz vakti paneli güncellendi.";
+    }
+  });
+}
+
+if (prayerAdminTestBtn) {
+  prayerAdminTestBtn.addEventListener("click", async () => {
+    playEzanAuto();
+    activateEzanMode("Admin ezan testi aktif 🤍 (2 dakika)");
+    await renderPrayerAdminMonitor();
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
+    }
   });
 }
 
@@ -2049,6 +2147,7 @@ function setAdminSession(isActive) {
     renderAdminList();
     renderPresenceBadge();
     renderActivityTimeline();
+    renderPrayerAdminMonitor({ force: true });
   }
 }
 
@@ -2218,6 +2317,7 @@ renderMailSetupStatus();
 setAdminSession(false);
 setSiteSession(false);
 renderPresenceBadge();
+renderPrayerAdminMonitor();
 if (remoteSyncEnabled) {
   if (RUNNING_ON_STATIC_ONLY_HOST && REMOTE_STATE_IS_SAME_ORIGIN) {
     remoteSyncEnabled = false;
@@ -2243,4 +2343,5 @@ setInterval(updatePresenceHeartbeat, 5000);
 setInterval(renderPresenceBadge, 5000);
 setInterval(renderLoveMilestone, 60 * 1000);
 setInterval(tickPrayerMode, 30 * 1000);
+setInterval(renderPrayerAdminMonitor, 5000);
 tickPrayerMode();

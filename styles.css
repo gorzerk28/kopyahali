@@ -516,6 +516,21 @@ textarea {
   font-weight: 600;
 }
 
+.prayer-admin-card {
+  display: grid;
+  gap: 10px;
+}
+
+.prayer-admin-grid {
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.prayer-admin-grid p {
+  margin: 0;
+}
+
 body.is-ezan-mode .topbar {
   border-color: #cde8d9;
   box-shadow: 0 14px 30px rgba(56, 132, 91, 0.18);
