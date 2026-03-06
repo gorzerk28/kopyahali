@@ -149,8 +149,6 @@ const stormFlash = document.getElementById("stormFlash");
 const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
-const ezanTestBtn = document.getElementById("ezanTestBtn");
-const ezanStopBtn = document.getElementById("ezanStopBtn");
 const ezanSourceInfo = document.getElementById("ezanSourceInfo");
 const prayerAdminStatus = document.getElementById("prayerAdminStatus");
 const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
@@ -391,7 +389,7 @@ function stopEzanAudio() {
   ezanAudioEl.currentTime = 0;
 }
 
-function stopEzanModeManually(message = "Ezan sesi durduruldu.") {
+function stopEzanModeManually(message = "Namazın için kalbine alan açtım 🤍") {
   prayerRuntime.modeUntilMs = 0;
   document.body.classList.remove("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
@@ -427,7 +425,7 @@ function playEzanAuto() {
 
   ezanAudioEl.play().catch(() => {
     if (ezanModeText) {
-      ezanModeText.textContent = "Ezan vakti girdi 🤍 Tarayıcı sesi engelledi; ekrana dokununca otomatik deneme tekrar yapılacak.";
+      ezanModeText.textContent = "Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin.";
     }
   });
 }
@@ -561,7 +559,7 @@ async function tickPrayerMode() {
     const adhanTrigger = `${now.dateKey}-${exactPrayer.key}-${now.minutes}`;
     if (prayerRuntime.lastAdhanTrigger !== adhanTrigger) {
       prayerRuntime.lastAdhanTrigger = adhanTrigger;
-      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Namaza davet vakti. Allah kabul etsin.`);
+      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.`);
       playEzanAuto();
       pushPrayerRomanticNotification(
         `${exactPrayer.label} vakti girdi 🤍 Bir tanem, abdestini alıp namaza geçmek için çok güzel bir an. Rabbim kalbine huzur versin.`
@@ -1574,21 +1572,6 @@ if (ezanSourceInfo) {
   ezanSourceInfo.textContent = source.note;
 }
 
-if (ezanTestBtn) {
-  ezanTestBtn.addEventListener("click", () => {
-    playEzanAuto();
-    activateEzanMode("Ezan testi çalıyor 🤍");
-    renderPrayerAdminMonitor();
-  });
-}
-
-if (ezanStopBtn) {
-  ezanStopBtn.addEventListener("click", async () => {
-    stopEzanModeManually("Ezan testi manuel olarak durduruldu.");
-    await renderPrayerAdminMonitor();
-  });
-}
-
 if (prayerAdminRefreshBtn) {
   prayerAdminRefreshBtn.addEventListener("click", async () => {
     await renderPrayerAdminMonitor({ force: true });
@@ -1601,7 +1584,7 @@ if (prayerAdminRefreshBtn) {
 if (prayerAdminTestBtn) {
   prayerAdminTestBtn.addEventListener("click", async () => {
     playEzanAuto();
-    activateEzanMode("Admin ezan testi aktif 🤍 (2 dakika)");
+    activateEzanMode("Admin ezan testi aktif 🤍 (2 dakika) Kalbine huzur dolsun.");
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
       prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
@@ -1611,10 +1594,10 @@ if (prayerAdminTestBtn) {
 
 if (prayerAdminStopBtn) {
   prayerAdminStopBtn.addEventListener("click", async () => {
-    stopEzanModeManually("Admin tarafından ezan testi durduruldu.");
+    stopEzanModeManually("Namazımı kılıyorum 🤍 Rabbim kabul etsin.");
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
-      prayerAdminInfo.textContent = "Ezan testi manuel olarak durduruldu.";
+      prayerAdminInfo.textContent = "Test durduruldu. Namaz için sakin moda geçildi 🤍";
     }
   });
 }

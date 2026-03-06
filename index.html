@@ -117,12 +117,8 @@
           <article id="ezanModeBanner" class="prayer-mode-card hidden" aria-live="polite">
             <p class="eyebrow">🕌 Ezan Modu</p>
             <p id="ezanModeText" class="prayer-mode-text"></p>
-            <div class="admin-actions">
-              <button id="ezanTestBtn" class="btn-ghost" type="button">Ezan Testi ▶️</button>
-              <button id="ezanStopBtn" class="btn-danger" type="button">Ezanı Durdur ⏹️</button>
-            </div>
             <small id="ezanSourceInfo" class="muted"></small>
-            <small class="muted">Özel ses linki için: <code>config.js</code> içindeki <code>ezanAudioUrl</code> alanını doldur.</small>
+            <small class="muted">Bu alandaki ezan testi sadece Kalp Sorumlusu (admin) panelinden yönetilir.</small>
           </article>
 
           <p id="prayerCountdownHint" class="prayer-countdown-hint hidden" aria-live="polite"></p>
@@ -244,6 +240,23 @@
           </div>
 
           <aside class="admin-side-column">
+            <article class="card prayer-admin-card">
+              <h2>🕌 Namaz Vakti Kontrol</h2>
+              <p class="muted">Ezan modunun aktif olup olmadığını buradan takip edip test başlatabilirsin.</p>
+              <div class="prayer-admin-grid">
+                <p><strong>Durum:</strong> <span id="prayerAdminStatus">Kontrol ediliyor...</span></p>
+                <p><strong>Son Tetik:</strong> <span id="prayerAdminLastTrigger">-</span></p>
+                <p><strong>Sıradaki Vakit:</strong> <span id="prayerAdminNext">-</span></p>
+                <p><strong>Ses Durumu:</strong> <span id="prayerAdminAudio">-</span></p>
+              </div>
+              <div class="admin-actions">
+                <button id="prayerAdminRefreshBtn" class="btn-ghost" type="button">Durumu Yenile</button>
+                <button id="prayerAdminTestBtn" class="btn-primary" type="button">Admin Ezan Testi ▶️</button>
+                <button id="prayerAdminStopBtn" class="btn-danger" type="button">Namazımı Kılıyorum 🤍</button>
+              </div>
+              <p id="prayerAdminInfo" class="muted" aria-live="polite"></p>
+            </article>
+
             <article class="card">
               <h2>📝 Günün Mesajı Ayarları</h2>
               <p class="muted">Her satıra bir romantik söz yaz. Kaydettiğinde günlük mesajlar bu listeden döner.</p>
@@ -286,22 +299,7 @@
               </form>
             </article>
 
-            <article class="card prayer-admin-card">
-              <h2>🕌 Namaz Vakti Kontrol</h2>
-              <p class="muted">Ezan modunun aktif olup olmadığını buradan takip edip test başlatabilirsin.</p>
-              <div class="prayer-admin-grid">
-                <p><strong>Durum:</strong> <span id="prayerAdminStatus">Kontrol ediliyor...</span></p>
-                <p><strong>Son Tetik:</strong> <span id="prayerAdminLastTrigger">-</span></p>
-                <p><strong>Sıradaki Vakit:</strong> <span id="prayerAdminNext">-</span></p>
-                <p><strong>Ses Durumu:</strong> <span id="prayerAdminAudio">-</span></p>
-              </div>
-              <div class="admin-actions">
-                <button id="prayerAdminRefreshBtn" class="btn-ghost" type="button">Durumu Yenile</button>
-                <button id="prayerAdminTestBtn" class="btn-primary" type="button">Admin Ezan Testi ▶️</button>
-                <button id="prayerAdminStopBtn" class="btn-danger" type="button">Ezanı Durdur ⏹️</button>
-              </div>
-              <p id="prayerAdminInfo" class="muted" aria-live="polite"></p>
-            </article>
+            
 
             <article class="card">
               <h2>🛟 Senkron & Kurtarma</h2>
