@@ -10,6 +10,7 @@ const OWNER_DEVICE_KEY = "kalp-postasi-owner-device";
 const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
+const REQUESTS_BACKUP_HISTORY_KEY = "kalp-postasi-requests-backup-history";
 
 const config = window.APP_CONFIG || {};
 const SYNC_MODE = (() => {
@@ -1327,21 +1328,36 @@ function playLoveBurst() {
   }
 }
 
+function normalizeLoadedRequests(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    partnerNotified: item.partnerNotified ?? true,
+  }));
+}
+
 function loadRequests() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.map((item) => ({
-      ...item,
-      partnerNotified: item.partnerNotified ?? true,
-    }));
-  } catch {
-    return [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        return normalizeLoadedRequests(parsed);
+      }
+    } catch {
+      // yedek katmanlarına düş
+    }
   }
+
+  const directBackup = loadRequestsBackup();
+  if (directBackup.length) return normalizeLoadedRequests(directBackup);
+
+  const history = loadRequestsBackupHistory();
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const candidate = Array.isArray(history[i]?.requests) ? history[i].requests : [];
+    if (candidate.length) return normalizeLoadedRequests(candidate);
+  }
+
+  return [];
 }
 
 function loadRequestsBackup() {
@@ -1358,6 +1374,37 @@ function loadRequestsBackup() {
 
 function saveRequestsBackup() {
   localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(state.requests));
+}
+
+function loadRequestsBackupHistory() {
+  const raw = localStorage.getItem(REQUESTS_BACKUP_HISTORY_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRequestsBackupHistory() {
+  const current = Array.isArray(state.requests) ? state.requests : [];
+  if (!current.length) return;
+
+  const history = loadRequestsBackupHistory();
+  const latest = history[history.length - 1];
+  const latestSerialized = latest ? JSON.stringify(latest.requests || []) : "";
+  const currentSerialized = JSON.stringify(current);
+  if (latestSerialized === currentSerialized) return;
+
+  history.push({
+    at: new Date().toISOString(),
+    requests: current,
+  });
+
+  const sliced = history.slice(-120);
+  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sliced));
 }
 
 function loadCustomNotifications() {
@@ -1381,6 +1428,7 @@ function loadCustomNotifications() {
 function saveRequests() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.requests));
   saveRequestsBackup();
+  saveRequestsBackupHistory();
   queueRemotePush();
 }
 
@@ -1959,17 +2007,30 @@ function createAdminCard(item) {
     mailBtn.disabled = false;
   });
 
+  deleteBtn.textContent = "Talebi Arşive Al ♾️";
+
   deleteBtn.addEventListener("click", async () => {
-    const confirmed = confirm(`"${item.title}" talebini kalıcı olarak silmek istiyor musun?`);
+    const confirmed = confirm(
+      `"${item.title}" talebini arşive almak istiyor musun? Talep verisi kalıcı olarak saklanır, silinmez.`
+    );
     if (!confirmed) return;
 
     await syncBeforeMutation();
 
-    state.requests = state.requests.filter((req) => req.id !== item.id);
+    const target = state.requests.find((req) => req.id === item.id);
+    if (!target) return;
+
+    target.status = "Arşivlendi";
+    target.result = target.result || "Talep arşive alındı. İstenirse tekrar aktif edilebilir 💞";
+    target.isArchived = true;
+    target.archivedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
+    target._rev = Number(target._rev || 0) + 1;
+
     saveRequests();
-    await pushRemoteState({ deletedRequestIds: [item.id] });
+    await pushRemoteState({ force: true });
     adminDrafts.delete(String(item.id));
-    addActivity("admin", `Talep silindi: ${item.title}`);
+    addActivity("admin", `Talep arşive alındı (silinmedi): ${item.title}`);
 
     renderTrackNotifications();
     renderTrackList();
@@ -1992,7 +2053,18 @@ function renderAdminList() {
 }
 
 async function restoreRequestsFromBackup() {
-  const backup = loadRequestsBackup();
+  let backup = loadRequestsBackup();
+  if (!backup.length) {
+    const history = loadRequestsBackupHistory();
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const candidate = Array.isArray(history[i]?.requests) ? history[i].requests : [];
+      if (candidate.length) {
+        backup = candidate;
+        break;
+      }
+    }
+  }
+
   if (!backup.length) {
     await pullRemoteState();
     if (state.requests.length) {
@@ -2003,7 +2075,7 @@ async function restoreRequestsFromBackup() {
     }
     return {
       ok: false,
-      message: "Yerel yedekte talep bulunamadı. Bu cihazda yedek yoksa önce 'Talep Yenile' ile sunucudan çekmeyi dene.",
+      message: "Yerel/çoklu yedekte talep bulunamadı. Sunucuda da yoksa tarayıcı verisi temizlenmiş olabilir.",
     };
   }
 
