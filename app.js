@@ -254,6 +254,8 @@ const prayerRuntime = {
   todayTimings: null,
   tomorrowTimings: null,
   modeUntilMs: 0,
+  audioUntilMs: 0,
+  audioStopTimer: null,
   lastAdhanTrigger: "",
   lastCountdownTrigger: "",
 };
@@ -362,10 +364,22 @@ async function ensurePrayerTimesForDate(dateKey) {
 }
 
 function activateEzanMode(message) {
-  prayerRuntime.modeUntilMs = Date.now() + 60 * 1000;
+  prayerRuntime.modeUntilMs = Date.now() + 2 * 60 * 1000;
   document.body.classList.add("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
   if (ezanModeText) ezanModeText.textContent = message;
+}
+
+function stopEzanAudio() {
+  if (prayerRuntime.audioStopTimer) {
+    clearTimeout(prayerRuntime.audioStopTimer);
+    prayerRuntime.audioStopTimer = null;
+  }
+  prayerRuntime.audioUntilMs = 0;
+
+  if (!ezanAudioEl) return;
+  ezanAudioEl.pause();
+  ezanAudioEl.currentTime = 0;
 }
 
 function disableEzanModeIfExpired() {
@@ -374,25 +388,51 @@ function disableEzanModeIfExpired() {
   prayerRuntime.modeUntilMs = 0;
   document.body.classList.remove("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
+  stopEzanAudio();
 }
 
 function playEzanAuto() {
   const source = resolveEzanAudioUrl();
   if (!source.url) return;
-  if (ezanAudioEl) {
-    ezanAudioEl.pause();
-    ezanAudioEl = null;
-  }
+
+  stopEzanAudio();
 
   ezanAudioEl = new Audio(source.url);
   ezanAudioEl.preload = "auto";
   ezanAudioEl.volume = 1;
   ezanAudioEl.currentTime = 0;
+  ezanAudioEl.loop = true;
+
+  prayerRuntime.audioUntilMs = Date.now() + 2 * 60 * 1000;
+  prayerRuntime.audioStopTimer = setTimeout(() => {
+    stopEzanAudio();
+  }, 2 * 60 * 1000);
+
   ezanAudioEl.play().catch(() => {
     if (ezanModeText) {
       ezanModeText.textContent = "Ezan vakti girdi 🤍 Tarayıcı sesi engelledi; ekrana dokununca otomatik deneme tekrar yapılacak.";
     }
   });
+}
+
+function pushPrayerRomanticNotification(text) {
+  const actor = getCurrentSessionActor();
+  if (actor !== "Sevgilin") return;
+
+  const item = {
+    id: `n-prayer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    title: "🤍 Namaz Vakti Hatırlatması",
+    message: text,
+    read: false,
+    target: "partner",
+    createdAt: new Date().toISOString(),
+  };
+
+  state.customNotifications.unshift(item);
+  state.customNotifications = state.customNotifications.slice(0, 80);
+  saveCustomNotifications();
+  renderTrackNotifications();
+  updateNotificationBell();
 }
 
 function renderPrayerCountdown(text = "") {
@@ -436,6 +476,9 @@ async function tickPrayerMode() {
       prayerRuntime.lastAdhanTrigger = adhanTrigger;
       activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Namaza davet vakti. Allah kabul etsin.`);
       playEzanAuto();
+      pushPrayerRomanticNotification(
+        `${exactPrayer.label} vakti girdi 🤍 Bir tanem, abdestini alıp namaza geçmek için çok güzel bir an. Rabbim kalbine huzur versin.`
+      );
     }
   }
 
@@ -447,6 +490,9 @@ async function tickPrayerMode() {
       if (prayerRuntime.lastCountdownTrigger !== countdownKey) {
         prayerRuntime.lastCountdownTrigger = countdownKey;
         renderPrayerCountdown(`${nextPrayer.label} vaktine 20 dakika kaldı 🌙 Müsaitsen kalbim seninle; Rabbim huzur versin.`);
+        pushPrayerRomanticNotification(
+          `${nextPrayer.label} vaktine 20 dakika kaldı 🌙 Bir tanem, hazırlanıp namaza yetişmen için tatlı bir hatırlatma bırakayım dedim.`
+        );
       }
     }
   }
