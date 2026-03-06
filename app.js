@@ -150,6 +150,7 @@ const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
 const ezanTestBtn = document.getElementById("ezanTestBtn");
+const ezanStopBtn = document.getElementById("ezanStopBtn");
 const ezanSourceInfo = document.getElementById("ezanSourceInfo");
 const prayerAdminStatus = document.getElementById("prayerAdminStatus");
 const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
@@ -158,6 +159,7 @@ const prayerAdminAudio = document.getElementById("prayerAdminAudio");
 const prayerAdminInfo = document.getElementById("prayerAdminInfo");
 const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
 const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
+const prayerAdminStopBtn = document.getElementById("prayerAdminStopBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -387,6 +389,14 @@ function stopEzanAudio() {
   if (!ezanAudioEl) return;
   ezanAudioEl.pause();
   ezanAudioEl.currentTime = 0;
+}
+
+function stopEzanModeManually(message = "Ezan sesi durduruldu.") {
+  prayerRuntime.modeUntilMs = 0;
+  document.body.classList.remove("is-ezan-mode");
+  if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
+  stopEzanAudio();
+  if (ezanModeText) ezanModeText.textContent = message;
 }
 
 function disableEzanModeIfExpired() {
@@ -1572,6 +1582,13 @@ if (ezanTestBtn) {
   });
 }
 
+if (ezanStopBtn) {
+  ezanStopBtn.addEventListener("click", async () => {
+    stopEzanModeManually("Ezan testi manuel olarak durduruldu.");
+    await renderPrayerAdminMonitor();
+  });
+}
+
 if (prayerAdminRefreshBtn) {
   prayerAdminRefreshBtn.addEventListener("click", async () => {
     await renderPrayerAdminMonitor({ force: true });
@@ -1588,6 +1605,16 @@ if (prayerAdminTestBtn) {
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
       prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
+    }
+  });
+}
+
+if (prayerAdminStopBtn) {
+  prayerAdminStopBtn.addEventListener("click", async () => {
+    stopEzanModeManually("Admin tarafından ezan testi durduruldu.");
+    await renderPrayerAdminMonitor();
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Ezan testi manuel olarak durduruldu.";
     }
   });
 }

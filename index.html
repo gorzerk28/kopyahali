@@ -117,8 +117,12 @@
           <article id="ezanModeBanner" class="prayer-mode-card hidden" aria-live="polite">
             <p class="eyebrow">🕌 Ezan Modu</p>
             <p id="ezanModeText" class="prayer-mode-text"></p>
-            <button id="ezanTestBtn" class="btn-ghost" type="button">Ezan Testi ▶️</button>
+            <div class="admin-actions">
+              <button id="ezanTestBtn" class="btn-ghost" type="button">Ezan Testi ▶️</button>
+              <button id="ezanStopBtn" class="btn-danger" type="button">Ezanı Durdur ⏹️</button>
+            </div>
             <small id="ezanSourceInfo" class="muted"></small>
+            <small class="muted">Özel ses linki için: <code>config.js</code> içindeki <code>ezanAudioUrl</code> alanını doldur.</small>
           </article>
 
           <p id="prayerCountdownHint" class="prayer-countdown-hint hidden" aria-live="polite"></p>
@@ -294,6 +298,7 @@
               <div class="admin-actions">
                 <button id="prayerAdminRefreshBtn" class="btn-ghost" type="button">Durumu Yenile</button>
                 <button id="prayerAdminTestBtn" class="btn-primary" type="button">Admin Ezan Testi ▶️</button>
+                <button id="prayerAdminStopBtn" class="btn-danger" type="button">Ezanı Durdur ⏹️</button>
               </div>
               <p id="prayerAdminInfo" class="muted" aria-live="polite"></p>
             </article>
