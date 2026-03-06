@@ -149,7 +149,7 @@ const stormFlash = document.getElementById("stormFlash");
 const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
-const ezanSourceInfo = document.getElementById("ezanSourceInfo");
+const partnerPrayerDoneBtn = document.getElementById("partnerPrayerDoneBtn");
 const prayerAdminStatus = document.getElementById("prayerAdminStatus");
 const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
 const prayerAdminNext = document.getElementById("prayerAdminNext");
@@ -157,7 +157,6 @@ const prayerAdminAudio = document.getElementById("prayerAdminAudio");
 const prayerAdminInfo = document.getElementById("prayerAdminInfo");
 const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
 const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
-const prayerAdminStopBtn = document.getElementById("prayerAdminStopBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -1619,9 +1618,11 @@ notificationBell.addEventListener("click", () => {
   trackNotifications.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-if (ezanSourceInfo) {
-  const source = resolveEzanAudioUrl();
-  ezanSourceInfo.textContent = source.note;
+if (partnerPrayerDoneBtn) {
+  partnerPrayerDoneBtn.addEventListener("click", async () => {
+    stopEzanModeManually("Namazımı kılıyorum 🤍 Rabbim kabul etsin.");
+    await renderPrayerAdminMonitor();
+  });
 }
 
 if (prayerAdminRefreshBtn) {
@@ -1640,16 +1641,6 @@ if (prayerAdminTestBtn) {
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
       prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
-    }
-  });
-}
-
-if (prayerAdminStopBtn) {
-  prayerAdminStopBtn.addEventListener("click", async () => {
-    stopEzanModeManually("Namazımı kılıyorum 🤍 Rabbim kabul etsin.");
-    await renderPrayerAdminMonitor();
-    if (prayerAdminInfo) {
-      prayerAdminInfo.textContent = "Test durduruldu. Namaz için sakin moda geçildi 🤍";
     }
   });
 }

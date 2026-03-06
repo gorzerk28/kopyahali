@@ -81,6 +81,16 @@
           <h2>Kalbinden Geçeni Yaz</h2>
           <p class="muted">Ne hissettiğini yaz, ben de özenle değerlendirip dönüş yapayım.</p>
 
+          <article id="ezanModeBanner" class="prayer-mode-card hidden" aria-live="polite">
+            <p class="eyebrow">🕌 Ezan Modu</p>
+            <p id="ezanModeText" class="prayer-mode-text"></p>
+            <div class="admin-actions">
+              <button id="partnerPrayerDoneBtn" class="btn-primary" type="button">Namazımı Kılıyorum 🤍</button>
+            </div>
+          </article>
+
+          <p id="prayerCountdownHint" class="prayer-countdown-hint hidden" aria-live="polite"></p>
+
           <article class="daily-love-card" aria-live="polite">
             <p class="eyebrow">✨ Günün Mesajı</p>
             <p id="dailyLoveMessage" class="daily-love-text"></p>
@@ -113,15 +123,6 @@
             <h3>Sinirli Mod etkin: talep arayüzü geçici olarak kapatıldı</h3>
             <p id="servicePauseMessage" class="service-pause-text"></p>
           </article>
-
-          <article id="ezanModeBanner" class="prayer-mode-card hidden" aria-live="polite">
-            <p class="eyebrow">🕌 Ezan Modu</p>
-            <p id="ezanModeText" class="prayer-mode-text"></p>
-            <small id="ezanSourceInfo" class="muted"></small>
-            <small class="muted">Bu alandaki ezan testi sadece Kalp Sorumlusu (admin) panelinden yönetilir.</small>
-          </article>
-
-          <p id="prayerCountdownHint" class="prayer-countdown-hint hidden" aria-live="polite"></p>
 
           <form id="requestForm" class="form-grid">
             <label>
@@ -252,7 +253,6 @@
               <div class="admin-actions">
                 <button id="prayerAdminRefreshBtn" class="btn-ghost" type="button">Durumu Yenile</button>
                 <button id="prayerAdminTestBtn" class="btn-primary" type="button">Admin Ezan Testi ▶️</button>
-                <button id="prayerAdminStopBtn" class="btn-danger" type="button">Namazımı Kılıyorum 🤍</button>
               </div>
               <p id="prayerAdminInfo" class="muted" aria-live="polite"></p>
             </article>
