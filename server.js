@@ -13,6 +13,7 @@ const LEDGER_FILE = path.join(path.dirname(STATE_FILE), "request-ledger.ndjson")
 const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
+const PARTNER_EMAIL = String(process.env.PARTNER_EMAIL || "").trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
 const AUTH_SECRET = String(process.env.AUTH_SECRET || "").trim();
@@ -666,6 +667,7 @@ function getNotifyStatus() {
     ready: emailMissing.length === 0,
     provider: EMAIL_PROVIDER || "not-set",
     from: EMAIL_FROM || "not-set",
+    partnerEmailConfigured: Boolean(PARTNER_EMAIL),
     missing: emailMissing,
     telegram: {
       ready: telegramMissing.length === 0,
@@ -943,15 +945,16 @@ const server = http.createServer(async (req, res) => {
         if (!adminAuth) {
           return sendJson(req, res, 401, { ok: false, error: "Admin authentication required" });
         }
-        if (!payload.to || !payload.subject || !payload.text) {
+        const to = String(payload.to || PARTNER_EMAIL || "").trim();
+        if (!to || !payload.subject || !payload.text) {
           return sendJson(req, res, 400, {
             ok: false,
             error: "Invalid payload",
-            expected: "{ channel: 'email', to, subject, text }",
+            expected: "{ channel: 'email', subject, text } (+ PARTNER_EMAIL env)",
           });
         }
 
-        const result = await sendEmail(payload);
+        const result = await sendEmail({ ...payload, to });
         return sendJson(req, res, result.status, result);
       }
 

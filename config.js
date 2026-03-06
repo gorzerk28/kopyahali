@@ -1,12 +1,4 @@
 window.APP_CONFIG = {
-  // Güvenlik notu:
-  // Şifre/kullanıcı adı gibi gizli bilgiler burada tutulmaz.
-  // Bunları Render Environment Variables üzerinden yönet:
-  // SITE_USERNAME, SITE_PASSWORD, OWNER_USERNAME, OWNER_SITE_PASSWORD, ADMIN_PASSWORD, AUTH_SECRET
-
-  // Talep cevaplandığında bildirimin gideceği e-posta
-  partnerEmail: "iremm222aksoy@gmail.com",
-
   // Senkron modu:
   // local  -> sadece bu cihazda çalışır (farklı cihazda talep görünmez).
   // remote -> farklı cihazların aynı talepleri görmesi için zorunlu.

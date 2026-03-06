@@ -55,7 +55,6 @@ const STATIC_ONLY_HOSTS = ["github.io", "githubusercontent.com"];
 const RUNNING_ON_STATIC_ONLY_HOST = STATIC_ONLY_HOSTS.some((host) =>
   window.location.hostname.endsWith(host)
 );
-const PARTNER_EMAIL = String(config.partnerEmail || "").trim();
 let remoteSyncEnabled = SYNC_MODE !== "local";
 let hasWarnedRemoteUnavailable = false;
 let csrfToken = "";
@@ -1753,14 +1752,6 @@ function buildNotificationText(item, status, result) {
 async function renderMailSetupStatus() {
   if (!mailStatusBadge || !mailStatusHint) return;
 
-  if (!PARTNER_EMAIL) {
-    mailStatusBadge.textContent = "Hazır Değil";
-    mailStatusBadge.classList.add("offline");
-    mailStatusBadge.classList.remove("online");
-    mailStatusHint.textContent = "1) config.js içinde partnerEmail alanını doldur.";
-    return;
-  }
-
   try {
     const response = await fetch(`${NOTIFY_ENDPOINT}/status`, {
       cache: "no-store",
@@ -1771,11 +1762,11 @@ async function renderMailSetupStatus() {
 
     const payload = await response.json();
 
-    if (payload.ready) {
+    if (payload.ready && payload.partnerEmailConfigured) {
       mailStatusBadge.textContent = "Hazır";
       mailStatusBadge.classList.remove("offline");
       mailStatusBadge.classList.add("online");
-      mailStatusHint.textContent = `Alıcı: ${PARTNER_EMAIL}`;
+      mailStatusHint.textContent = "Alıcı e-posta sunucu ortamında tanımlı.";
       return;
     }
 
@@ -1783,7 +1774,8 @@ async function renderMailSetupStatus() {
     mailStatusBadge.classList.add("offline");
     mailStatusBadge.classList.remove("online");
     const missing = Array.isArray(payload.missing) ? payload.missing.join(", ") : "Render env ayarları";
-    mailStatusHint.textContent = `2) Render Environment'a şunları ekle: ${missing}`;
+    const partnerEmailMissing = payload.partnerEmailConfigured ? "" : ", PARTNER_EMAIL";
+    mailStatusHint.textContent = `Render Environment'a şunları ekle: ${missing}${partnerEmailMissing}`;
   } catch {
     mailStatusBadge.textContent = "Kontrol Edilemedi";
     mailStatusBadge.classList.add("offline");
@@ -1805,10 +1797,6 @@ function buildEmailBody(item, status, result) {
 }
 
 async function sendEmailNotification(item, status, result) {
-  if (!PARTNER_EMAIL) {
-    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
-  }
-
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
@@ -1816,7 +1804,6 @@ async function sendEmailNotification(item, status, result) {
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
-        to: PARTNER_EMAIL,
         subject: `Talebin cevaplandı: ${item.title}`,
         text: buildEmailBody(item, status, result),
       }),
@@ -1843,10 +1830,6 @@ async function sendEmailNotification(item, status, result) {
 
 
 async function sendManualEmail(subject, text) {
-  if (!PARTNER_EMAIL) {
-    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
-  }
-
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
@@ -1854,7 +1837,6 @@ async function sendManualEmail(subject, text) {
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
-        to: PARTNER_EMAIL,
         subject,
         text,
       }),
