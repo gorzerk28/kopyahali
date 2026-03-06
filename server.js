@@ -52,6 +52,7 @@ function defaultState() {
     activityTimeline: [],
     loginLogs: [],
     dailyMessages: [],
+    quranVerses: [],
     partnerPresence: {
       partnerOnline: false,
       updatedAt: null,
@@ -191,6 +192,7 @@ function readState() {
       activityTimeline: Array.isArray(parsed.activityTimeline) ? parsed.activityTimeline : [],
       loginLogs: Array.isArray(parsed.loginLogs) ? parsed.loginLogs : [],
       dailyMessages: Array.isArray(parsed.dailyMessages) ? parsed.dailyMessages : [],
+      quranVerses: Array.isArray(parsed.quranVerses) ? parsed.quranVerses : [],
       partnerPresence:
         parsed.partnerPresence && typeof parsed.partnerPresence === "object"
           ? parsed.partnerPresence
@@ -216,6 +218,7 @@ function readState() {
           activityTimeline: Array.isArray(parsed.activityTimeline) ? parsed.activityTimeline : [],
           loginLogs: Array.isArray(parsed.loginLogs) ? parsed.loginLogs : [],
           dailyMessages: Array.isArray(parsed.dailyMessages) ? parsed.dailyMessages : [],
+          quranVerses: Array.isArray(parsed.quranVerses) ? parsed.quranVerses : [],
           partnerPresence:
             parsed.partnerPresence && typeof parsed.partnerPresence === "object"
               ? parsed.partnerPresence
@@ -251,6 +254,7 @@ function writeState(next) {
     activityTimeline: Array.isArray(next.activityTimeline) ? next.activityTimeline : [],
     loginLogs: Array.isArray(next.loginLogs) ? next.loginLogs : [],
     dailyMessages: Array.isArray(next.dailyMessages) ? next.dailyMessages : [],
+    quranVerses: Array.isArray(next.quranVerses) ? next.quranVerses : [],
     partnerPresence:
       next.partnerPresence && typeof next.partnerPresence === "object"
         ? next.partnerPresence

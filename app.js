@@ -11,6 +11,7 @@ const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
 const REQUESTS_BACKUP_HISTORY_KEY = "kalp-postasi-requests-backup-history";
+const QURAN_VERSES_KEY = "kalp-postasi-quran-verses";
 
 const config = window.APP_CONFIG || {};
 const SYNC_MODE = (() => {
@@ -72,6 +73,26 @@ const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Seninle sıradan günler bile kutlama gibi geliyor. ✨",
 ];
 
+const DEFAULT_QURAN_VERSES = [
+  "Kalpler ancak Allah'ı anmakla huzur bulur. (Ra'd 13:28)",
+  "Rabbim! Göğsüme genişlik ver. (Tâhâ 20:25)",
+  "Şüphesiz Allah sabredenlerle beraberdir. (Bakara 2:153)",
+  "Her zorlukla beraber bir kolaylık vardır. (İnşirah 94:6)",
+  "Allah size kolaylık ister, zorluk istemez. (Bakara 2:185)",
+  "De ki: Allah'ın lütfu ve rahmetiyle sevinsinler. (Yûnus 10:58)",
+  "Rabbimiz, bize dünyada da iyilik ver, ahirette de iyilik ver. (Bakara 2:201)",
+  "Kim Allah'a tevekkül ederse O ona yeter. (Talâk 65:3)",
+  "Allah dilediğini hesapsız rızıklandırır. (Âl-i İmrân 3:37)",
+  "Rabbim, ilmimi artır. (Tâhâ 20:114)",
+  "Allah, müminlerin dostudur. (Bakara 2:257)",
+  "Allah, sabredenleri sever. (Âl-i İmrân 3:146)",
+  "Affetsinler, hoş görsünler. (Nûr 24:22)",
+  "İyilikle kötülük bir olmaz; sen kötülüğü en güzel şekilde sav. (Fussilet 41:34)",
+  "Rabbim, beni namazı dosdoğru kılanlardan eyle. (İbrâhim 14:40)",
+];
+
+const EZAN_MODE_DURATION_MS = (4 * 60 + 5) * 1000;
+
 const RELATIONSHIP_START_DATE = "2023-03-20";
 
 const state = {
@@ -80,6 +101,7 @@ const state = {
   activityTimeline: loadActivityTimeline(),
   loginLogs: loadLoginLogs(),
   dailyMessages: loadDailyMessages(),
+  quranVerses: loadQuranVerses(),
   partnerPresence: loadPartnerPresence(),
   servicePause: loadServicePause(),
   failedSiteAttempts: 0,
@@ -133,6 +155,10 @@ const dailyMessageForm = document.getElementById("dailyMessageForm");
 const dailyMessageInput = document.getElementById("dailyMessageInput");
 const dailyMessageInfo = document.getElementById("dailyMessageInfo");
 const dailyMessageResetBtn = document.getElementById("dailyMessageResetBtn");
+const verseForm = document.getElementById("verseForm");
+const verseInput = document.getElementById("verseInput");
+const verseInfo = document.getElementById("verseInfo");
+const verseResetBtn = document.getElementById("verseResetBtn");
 const mailStatusBadge = document.getElementById("mailStatusBadge");
 const mailStatusHint = document.getElementById("mailStatusHint");
 const servicePauseBanner = document.getElementById("servicePauseBanner");
@@ -370,7 +396,7 @@ async function ensurePrayerTimesForDate(dateKey) {
 }
 
 function activateEzanMode(message) {
-  prayerRuntime.modeUntilMs = Date.now() + 2 * 60 * 1000;
+  prayerRuntime.modeUntilMs = Date.now() + EZAN_MODE_DURATION_MS;
   document.body.classList.add("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
   if (ezanModeText) ezanModeText.textContent = message;
@@ -417,10 +443,10 @@ function playEzanAuto() {
   ezanAudioEl.currentTime = 0;
   ezanAudioEl.loop = true;
 
-  prayerRuntime.audioUntilMs = Date.now() + 2 * 60 * 1000;
+  prayerRuntime.audioUntilMs = Date.now() + EZAN_MODE_DURATION_MS;
   prayerRuntime.audioStopTimer = setTimeout(() => {
     stopEzanAudio();
-  }, 2 * 60 * 1000);
+  }, EZAN_MODE_DURATION_MS);
 
   ezanAudioEl.play().catch(() => {
     if (ezanModeText) {
@@ -447,6 +473,14 @@ function pushPrayerRomanticNotification(text) {
   saveCustomNotifications();
   renderTrackNotifications();
   updateNotificationBell();
+}
+
+function getRandomQuranVerse() {
+  const verses = Array.isArray(state.quranVerses) && state.quranVerses.length
+    ? state.quranVerses
+    : DEFAULT_QURAN_VERSES;
+  const index = Math.floor(Math.random() * verses.length);
+  return String(verses[index] || "").trim();
 }
 
 function renderPrayerCountdown(text = "") {
@@ -558,10 +592,11 @@ async function tickPrayerMode() {
     const adhanTrigger = `${now.dateKey}-${exactPrayer.key}-${now.minutes}`;
     if (prayerRuntime.lastAdhanTrigger !== adhanTrigger) {
       prayerRuntime.lastAdhanTrigger = adhanTrigger;
-      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.`);
+      const verse = getRandomQuranVerse();
+      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.${verse ? `\n📖 ${verse}` : ""}`);
       playEzanAuto();
       pushPrayerRomanticNotification(
-        `${exactPrayer.label} vakti girdi 🤍 Bir tanem, abdestini alıp namaza geçmek için çok güzel bir an. Rabbim kalbine huzur versin.`
+        `${exactPrayer.label} vakti girdi 🤍 Bir tanem, abdestini alıp namaza geçmek için çok güzel bir an. Rabbim kalbine huzur versin.${verse ? `\n📖 ${verse}` : ""}`
       );
     }
   }
@@ -617,8 +652,27 @@ function loadDailyMessages() {
   }
 }
 
+function loadQuranVerses() {
+  const raw = localStorage.getItem(QURAN_VERSES_KEY);
+  if (!raw) return [...DEFAULT_QURAN_VERSES];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_QURAN_VERSES];
+    const cleaned = parsed.map((item) => String(item).trim()).filter(Boolean);
+    return cleaned.length ? cleaned : [...DEFAULT_QURAN_VERSES];
+  } catch {
+    return [...DEFAULT_QURAN_VERSES];
+  }
+}
+
 function saveDailyMessages() {
   localStorage.setItem(DAILY_MESSAGES_KEY, JSON.stringify(state.dailyMessages));
+  queueRemotePush();
+}
+
+function saveQuranVerses() {
+  localStorage.setItem(QURAN_VERSES_KEY, JSON.stringify(state.quranVerses));
   queueRemotePush();
 }
 
@@ -686,6 +740,11 @@ function renderLoginLogs() {
 function renderDailyMessageEditor() {
   if (!dailyMessageInput) return;
   dailyMessageInput.value = state.dailyMessages.join("\n");
+}
+
+function renderVerseEditor() {
+  if (!verseInput) return;
+  verseInput.value = state.quranVerses.join("\n");
 }
 
 function addActivity(type, text) {
@@ -785,6 +844,7 @@ function getSerializableState(options = {}) {
     activityTimeline: state.activityTimeline,
     loginLogs: state.loginLogs,
     dailyMessages: state.dailyMessages,
+    quranVerses: state.quranVerses,
     partnerPresence: state.partnerPresence,
     servicePause: state.servicePause,
   };
@@ -874,6 +934,9 @@ function applyRemoteState(remote) {
   state.dailyMessages = Array.isArray(remote.dailyMessages) && remote.dailyMessages.length
     ? remote.dailyMessages
     : state.dailyMessages;
+  state.quranVerses = Array.isArray(remote.quranVerses) && remote.quranVerses.length
+    ? remote.quranVerses
+    : state.quranVerses;
   state.partnerPresence = remote.partnerPresence && typeof remote.partnerPresence === "object"
     ? remote.partnerPresence
     : state.partnerPresence;
@@ -900,6 +963,7 @@ function applyRemoteState(remote) {
   saveActivityTimeline();
   saveLoginLogs();
   saveDailyMessages();
+  saveQuranVerses();
   savePartnerPresence();
   saveServicePause();
   suppressRemotePush = false;
@@ -913,6 +977,7 @@ function applyRemoteState(remote) {
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderVerseEditor();
   renderServicePauseUI();
 }
 
@@ -1293,7 +1358,8 @@ function renderServicePauseUI() {
     servicePauseMessage.textContent = getServicePauseMessage();
   }
 
-  if (toggleServicePauseBtn) {
+  
+if (toggleServicePauseBtn) {
     toggleServicePauseBtn.textContent = isPaused ? "Sinirli Modu Kapat" : "Sinirli Modu Aç";
   }
 
@@ -1484,6 +1550,7 @@ window.addEventListener("storage", () => {
   state.activityTimeline = loadActivityTimeline();
   state.loginLogs = loadLoginLogs();
   state.dailyMessages = loadDailyMessages();
+  state.quranVerses = loadQuranVerses();
   renderActivityTimeline();
   renderLoginLogs();
   renderDailyLoveMessage();
@@ -1637,7 +1704,7 @@ if (prayerAdminRefreshBtn) {
 if (prayerAdminTestBtn) {
   prayerAdminTestBtn.addEventListener("click", async () => {
     playEzanAuto();
-    activateEzanMode("Admin ezan testi aktif 🤍 (2 dakika) Kalbine huzur dolsun.");
+    activateEzanMode(`Admin ezan testi aktif 🤍 (${Math.floor(EZAN_MODE_DURATION_MS / 60000)} dakika ${Math.floor((EZAN_MODE_DURATION_MS % 60000) / 1000)} saniye) Kalbine huzur dolsun.`);
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
       prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
@@ -2305,6 +2372,39 @@ if (dailyMessageResetBtn) {
   });
 }
 
+
+if (verseForm) {
+  verseForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const lines = verseInput.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) {
+      verseInfo.textContent = "En az bir ayet girmelisin.";
+      return;
+    }
+
+    state.quranVerses = lines;
+    saveQuranVerses();
+    renderVerseEditor();
+    verseInfo.textContent = "Ayet listesi güncellendi 🤍";
+    addActivity("admin", "Ezan için ayet listesi güncellendi.");
+  });
+}
+
+if (verseResetBtn) {
+  verseResetBtn.addEventListener("click", () => {
+    state.quranVerses = [...DEFAULT_QURAN_VERSES];
+    localStorage.removeItem(QURAN_VERSES_KEY);
+    renderVerseEditor();
+    verseInfo.textContent = "Varsayılan ayet listesine dönüldü.";
+    addActivity("admin", "Ezan ayetleri varsayılan listeye döndürüldü.");
+  });
+}
+
 if (toggleServicePauseBtn) {
   toggleServicePauseBtn.addEventListener("click", async () => {
     const nextActive = !Boolean(state.servicePause?.active);
@@ -2386,6 +2486,7 @@ if (servicePauseMessageResetBtn) {
 renderDailyLoveMessage();
 renderLoveMilestone();
 renderDailyMessageEditor();
+renderVerseEditor();
 renderServicePauseUI();
 renderTrackNotifications();
 renderTrackList();

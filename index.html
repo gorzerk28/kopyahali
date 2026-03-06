@@ -82,7 +82,7 @@
           <p class="muted">Ne hissettiğini yaz, ben de özenle değerlendirip dönüş yapayım.</p>
 
           <article id="ezanModeBanner" class="prayer-mode-card hidden" aria-live="polite">
-            <p class="eyebrow">🕌 Ezan Modu</p>
+            <p class="eyebrow">🕌 Ezan Vakti</p>
             <p id="ezanModeText" class="prayer-mode-text"></p>
             <div class="admin-actions">
               <button id="partnerPrayerDoneBtn" class="btn-primary" type="button">Namazımı Kılıyorum 🤍</button>
@@ -270,6 +270,22 @@
                   <button id="dailyMessageResetBtn" class="btn-ghost" type="button">Varsayılan Sözlere Dön</button>
                 </div>
                 <p id="dailyMessageInfo" class="muted" aria-live="polite"></p>
+              </form>
+            </article>
+
+            <article class="card">
+              <h2>📖 Huzur Veren Ayetler</h2>
+              <p class="muted">Ezan vakti ekranında gösterilecek ayetleri satır satır düzenleyebilirsin.</p>
+              <form id="verseForm" class="admin-form">
+                <label>
+                  Ayet Listesi (her satıra bir ayet)
+                  <textarea id="verseInput" name="verses" rows="8" required></textarea>
+                </label>
+                <div class="admin-actions">
+                  <button class="btn-primary" type="submit">Ayetleri Kaydet ✨</button>
+                  <button id="verseResetBtn" class="btn-ghost" type="button">Varsayılan Ayetlere Dön</button>
+                </div>
+                <p id="verseInfo" class="muted" aria-live="polite"></p>
               </form>
             </article>
 
