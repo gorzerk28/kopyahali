@@ -10,5 +10,5 @@ window.APP_CONFIG = {
   apiBaseUrl: "",
 
   // İstanbul vakti girince otomatik çalacak ezan sesi (doğrudan .mp3/.ogg linki ver; YouTube linki olmaz)
-  ezanAudioUrl: "https://pratikbilgievi.net/wp-content/uploads/2021/01/ogle-ezani-rast-abdulkadir-sehitoglu.mp3",
+  ezanAudioUrl: "/assets/ezan.mp3",
 };
