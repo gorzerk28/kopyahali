@@ -11,6 +11,7 @@ const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
 const REQUESTS_BACKUP_HISTORY_KEY = "kalp-postasi-requests-backup-history";
+const DELETED_REQUEST_IDS_KEY = "kalp-postasi-deleted-request-ids";
 const QURAN_VERSES_KEY = "kalp-postasi-quran-verses";
 
 const config = window.APP_CONFIG || {};
@@ -94,6 +95,8 @@ const DEFAULT_QURAN_VERSES = [
 const EZAN_MODE_DURATION_MS = (4 * 60 + 5) * 1000;
 
 const RELATIONSHIP_START_DATE = "2023-03-20";
+
+let deletedRequestIds = loadDeletedRequestIds();
 
 const state = {
   requests: loadRequests(),
@@ -886,6 +889,7 @@ function playCelebrationBurst(mode = "soft") {
 
 function getSerializableState(options = {}) {
   const { deletedRequestIds = [] } = options;
+  const mergedDeletedIds = normalizeDeletedRequestIds([...deletedRequestIds, ...getDeletedRequestIds()]);
 
   const payload = {
     requests: state.requests,
@@ -899,8 +903,8 @@ function getSerializableState(options = {}) {
     servicePause: state.servicePause,
   };
 
-  if (Array.isArray(deletedRequestIds) && deletedRequestIds.length) {
-    payload.deletedRequestIds = deletedRequestIds;
+  if (mergedDeletedIds.length) {
+    payload.deletedRequestIds = mergedDeletedIds;
   }
 
   return payload;
@@ -964,6 +968,7 @@ function shouldProtectLocalRequestsOnRemotePull(remote) {
 
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
+  addDeletedRequestIds(Array.isArray(remote.deletedRequestIds) ? remote.deletedRequestIds : []);
 
   const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
   if (protectLocalRequests) {
@@ -973,7 +978,7 @@ function applyRemoteState(remote) {
     }
   }
 
-  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
+  state.requests = filterOutDeletedRequests(mergeRequestsPreferLatest(state.requests, remote.requests));
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -1446,10 +1451,80 @@ function playLoveBurst() {
 }
 
 function normalizeLoadedRequests(items = []) {
-  return (Array.isArray(items) ? items : []).map((item) => ({
-    ...item,
-    partnerNotified: item.partnerNotified ?? true,
-  }));
+  return filterOutDeletedRequests(
+    (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      partnerNotified: item.partnerNotified ?? true,
+    }))
+  );
+}
+
+function normalizeDeletedRequestIds(items = []) {
+  return [...new Set((Array.isArray(items) ? items : []).map((id) => String(id)).filter(Boolean))];
+}
+
+function getDeletedRequestIds() {
+  return normalizeDeletedRequestIds(deletedRequestIds);
+}
+
+function loadDeletedRequestIds() {
+  const raw = localStorage.getItem(DELETED_REQUEST_IDS_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return normalizeDeletedRequestIds(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function saveDeletedRequestIds() {
+  localStorage.setItem(DELETED_REQUEST_IDS_KEY, JSON.stringify(getDeletedRequestIds()));
+}
+
+function filterOutDeletedRequests(items = []) {
+  const deletedSet = new Set(getDeletedRequestIds());
+  if (!deletedSet.size) return Array.isArray(items) ? items : [];
+  return (Array.isArray(items) ? items : []).filter((item) => !deletedSet.has(String(item?.id)));
+}
+
+function pruneRequestBackupsByDeletedIds() {
+  const deletedSet = new Set(getDeletedRequestIds());
+  if (!deletedSet.size) return;
+
+  const backup = loadRequestsBackup();
+  if (backup.length) {
+    localStorage.setItem(
+      REQUESTS_BACKUP_KEY,
+      JSON.stringify(backup.filter((item) => !deletedSet.has(String(item?.id))))
+    );
+  }
+
+  const history = loadRequestsBackupHistory();
+  if (!history.length) return;
+
+  const sanitizedHistory = history
+    .map((snapshot) => ({
+      ...snapshot,
+      requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(
+        (item) => !deletedSet.has(String(item?.id))
+      ),
+    }))
+    .filter((snapshot) => snapshot.requests.length);
+
+  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sanitizedHistory));
+}
+
+function addDeletedRequestIds(ids = []) {
+  const current = getDeletedRequestIds();
+  const next = normalizeDeletedRequestIds([...current, ...ids]);
+  if (next.length === current.length) return;
+
+  deletedRequestIds = next;
+  state.requests = filterOutDeletedRequests(state.requests);
+  saveDeletedRequestIds();
+  pruneRequestBackupsByDeletedIds();
 }
 
 function loadRequests() {
@@ -1490,7 +1565,7 @@ function loadRequestsBackup() {
 }
 
 function saveRequestsBackup() {
-  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(state.requests));
+  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(filterOutDeletedRequests(state.requests)));
 }
 
 function loadRequestsBackupHistory() {
@@ -1506,7 +1581,7 @@ function loadRequestsBackupHistory() {
 }
 
 function saveRequestsBackupHistory() {
-  const current = Array.isArray(state.requests) ? state.requests : [];
+  const current = filterOutDeletedRequests(Array.isArray(state.requests) ? state.requests : []);
   if (!current.length) return;
 
   const history = loadRequestsBackupHistory();
@@ -1543,6 +1618,7 @@ function loadCustomNotifications() {
 }
 
 function saveRequests() {
+  state.requests = filterOutDeletedRequests(state.requests);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.requests));
   saveRequestsBackup();
   saveRequestsBackupHistory();
@@ -2165,6 +2241,7 @@ function createAdminCard(item) {
 
     await syncBeforeMutation();
 
+    addDeletedRequestIds([item.id]);
     state.requests = state.requests.filter((req) => req.id !== item.id);
     saveRequests();
     await pushRemoteState({ force: true, deletedRequestIds: [item.id] });
@@ -2220,6 +2297,7 @@ async function restoreRequestsFromBackup() {
 
   const beforeCount = state.requests.length;
   state.requests = mergeRequestsPreferLatest(state.requests, backup);
+  state.requests = filterOutDeletedRequests(state.requests);
   const afterCount = state.requests.length;
   saveRequests();
   renderTrackList();
