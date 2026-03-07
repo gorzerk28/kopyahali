@@ -296,6 +296,8 @@ const prayerRuntime = {
   lastAdhanTrigger: "",
   lastCountdownTrigger: "",
   lastAppliedRemotePrayerTestAt: null,
+  audioRetryPending: false,
+  audioRetryHandlersBound: false,
 };
 
 let ezanAudioEl = null;
@@ -441,6 +443,7 @@ function isPrayerTestStillActive(prayerTest) {
 }
 
 function stopEzanAudio() {
+  prayerRuntime.audioRetryPending = false;
   if (prayerRuntime.audioStopTimer) {
     clearTimeout(prayerRuntime.audioStopTimer);
     prayerRuntime.audioStopTimer = null;
@@ -469,7 +472,24 @@ function disableEzanModeIfExpired() {
   stopEzanAudio();
 }
 
-function playEzanAuto() {
+
+function bindEzanRetryOnInteraction() {
+  if (prayerRuntime.audioRetryHandlersBound) return;
+
+  const retry = () => {
+    if (!prayerRuntime.audioRetryPending) return;
+    playEzanAuto({ fromUserGesture: true });
+  };
+
+  ["pointerdown", "touchstart", "click", "keydown"].forEach((eventName) => {
+    window.addEventListener(eventName, retry, { passive: true });
+  });
+
+  prayerRuntime.audioRetryHandlersBound = true;
+}
+
+function playEzanAuto(options = {}) {
+  const { fromUserGesture = false } = options;
   const source = resolveEzanAudioUrl();
   if (!source.url) return;
 
@@ -486,11 +506,26 @@ function playEzanAuto() {
     stopEzanAudio();
   }, EZAN_MODE_DURATION_MS);
 
-  ezanAudioEl.play().catch(() => {
-    if (ezanModeText) {
-      ezanModeText.textContent = "Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin.";
-    }
-  });
+  const playPromise = ezanAudioEl.play();
+
+  if (playPromise && typeof playPromise.then === "function") {
+    playPromise
+      .then(() => {
+        prayerRuntime.audioRetryPending = false;
+      })
+      .catch(() => {
+        prayerRuntime.audioRetryPending = true;
+        bindEzanRetryOnInteraction();
+        if (ezanModeText) {
+          ezanModeText.textContent = fromUserGesture
+            ? "Tarayıcı hâlâ sesi engelliyor 🤍 iPhone/iPad'de sessiz mod kapalıyken ekrana tekrar dokunmayı deneyebilir misin?"
+            : "Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin.";
+        }
+      });
+    return;
+  }
+
+  prayerRuntime.audioRetryPending = false;
 }
 
 function pushPrayerRomanticNotification(text) {
