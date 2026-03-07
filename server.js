@@ -53,6 +53,11 @@ function defaultState() {
     loginLogs: [],
     dailyMessages: [],
     quranVerses: [],
+    prayerTest: {
+      active: false,
+      message: "",
+      triggeredAt: null,
+    },
     partnerPresence: {
       partnerOnline: false,
       updatedAt: null,
@@ -193,6 +198,10 @@ function readState() {
       loginLogs: Array.isArray(parsed.loginLogs) ? parsed.loginLogs : [],
       dailyMessages: Array.isArray(parsed.dailyMessages) ? parsed.dailyMessages : [],
       quranVerses: Array.isArray(parsed.quranVerses) ? parsed.quranVerses : [],
+      prayerTest:
+        parsed.prayerTest && typeof parsed.prayerTest === "object"
+          ? parsed.prayerTest
+          : { active: false, message: "", triggeredAt: null },
       partnerPresence:
         parsed.partnerPresence && typeof parsed.partnerPresence === "object"
           ? parsed.partnerPresence
@@ -219,6 +228,10 @@ function readState() {
           loginLogs: Array.isArray(parsed.loginLogs) ? parsed.loginLogs : [],
           dailyMessages: Array.isArray(parsed.dailyMessages) ? parsed.dailyMessages : [],
           quranVerses: Array.isArray(parsed.quranVerses) ? parsed.quranVerses : [],
+          prayerTest:
+            parsed.prayerTest && typeof parsed.prayerTest === "object"
+              ? parsed.prayerTest
+              : { active: false, message: "", triggeredAt: null },
           partnerPresence:
             parsed.partnerPresence && typeof parsed.partnerPresence === "object"
               ? parsed.partnerPresence
@@ -255,6 +268,14 @@ function writeState(next) {
     loginLogs: Array.isArray(next.loginLogs) ? next.loginLogs : [],
     dailyMessages: Array.isArray(next.dailyMessages) ? next.dailyMessages : [],
     quranVerses: Array.isArray(next.quranVerses) ? next.quranVerses : [],
+    prayerTest:
+      next.prayerTest && typeof next.prayerTest === "object"
+        ? {
+            active: Boolean(next.prayerTest.active),
+            message: String(next.prayerTest.message || "").trim(),
+            triggeredAt: next.prayerTest.triggeredAt ? String(next.prayerTest.triggeredAt) : null,
+          }
+        : { active: false, message: "", triggeredAt: null },
     partnerPresence:
       next.partnerPresence && typeof next.partnerPresence === "object"
         ? next.partnerPresence

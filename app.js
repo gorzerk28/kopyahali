@@ -102,6 +102,7 @@ const state = {
   loginLogs: loadLoginLogs(),
   dailyMessages: loadDailyMessages(),
   quranVerses: loadQuranVerses(),
+  prayerTest: loadPrayerTestState(),
   partnerPresence: loadPartnerPresence(),
   servicePause: loadServicePause(),
   failedSiteAttempts: 0,
@@ -183,6 +184,7 @@ const prayerAdminAudio = document.getElementById("prayerAdminAudio");
 const prayerAdminInfo = document.getElementById("prayerAdminInfo");
 const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
 const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
+const prayerAdminStopBtn = document.getElementById("prayerAdminStopBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -290,6 +292,7 @@ const prayerRuntime = {
   audioStopTimer: null,
   lastAdhanTrigger: "",
   lastCountdownTrigger: "",
+  lastAppliedRemotePrayerTestAt: null,
 };
 
 let ezanAudioEl = null;
@@ -400,6 +403,38 @@ function activateEzanMode(message) {
   document.body.classList.add("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
   if (ezanModeText) ezanModeText.textContent = message;
+}
+
+function getDefaultPrayerTestState() {
+  return {
+    active: false,
+    message: "",
+    triggeredAt: null,
+  };
+}
+
+function loadPrayerTestState() {
+  return getDefaultPrayerTestState();
+}
+
+function normalizePrayerTestState(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    active: Boolean(input.active),
+    message: String(input.message || "").trim(),
+    triggeredAt: input.triggeredAt ? String(input.triggeredAt) : null,
+  };
+}
+
+function savePrayerTestState() {
+  queueRemotePush();
+}
+
+function isPrayerTestStillActive(prayerTest) {
+  if (!prayerTest?.active || !prayerTest?.triggeredAt) return false;
+  const triggeredAtMs = new Date(prayerTest.triggeredAt).getTime();
+  if (!Number.isFinite(triggeredAtMs)) return false;
+  return Date.now() - triggeredAtMs < EZAN_MODE_DURATION_MS;
 }
 
 function stopEzanAudio() {
@@ -574,6 +609,20 @@ async function tickPrayerMode() {
     renderPrayerCountdown("");
     return;
   }
+
+  const activePrayerTest = normalizePrayerTestState(state.prayerTest);
+  const triggerKey = activePrayerTest.triggeredAt || null;
+  if (isPrayerTestStillActive(activePrayerTest) && activePrayerTest.message) {
+    if (prayerRuntime.lastAppliedRemotePrayerTestAt !== triggerKey) {
+      prayerRuntime.lastAppliedRemotePrayerTestAt = triggerKey;
+      activateEzanMode(activePrayerTest.message);
+      playEzanAuto();
+    }
+    disableEzanModeIfExpired();
+    return;
+  }
+
+  prayerRuntime.lastAppliedRemotePrayerTestAt = null;
 
   const now = getIstanbulNowParts();
   const ready = await ensurePrayerTimesForDate(now.dateKey);
@@ -845,6 +894,7 @@ function getSerializableState(options = {}) {
     loginLogs: state.loginLogs,
     dailyMessages: state.dailyMessages,
     quranVerses: state.quranVerses,
+    prayerTest: normalizePrayerTestState(state.prayerTest),
     partnerPresence: state.partnerPresence,
     servicePause: state.servicePause,
   };
@@ -937,6 +987,7 @@ function applyRemoteState(remote) {
   state.quranVerses = Array.isArray(remote.quranVerses) && remote.quranVerses.length
     ? remote.quranVerses
     : state.quranVerses;
+  state.prayerTest = normalizePrayerTestState(remote.prayerTest);
   state.partnerPresence = remote.partnerPresence && typeof remote.partnerPresence === "object"
     ? remote.partnerPresence
     : state.partnerPresence;
@@ -964,6 +1015,7 @@ function applyRemoteState(remote) {
   saveLoginLogs();
   saveDailyMessages();
   saveQuranVerses();
+  savePrayerTestState();
   savePartnerPresence();
   saveServicePause();
   suppressRemotePush = false;
@@ -979,6 +1031,7 @@ function applyRemoteState(remote) {
   renderDailyMessageEditor();
   renderVerseEditor();
   renderServicePauseUI();
+  tickPrayerMode();
 }
 
 function getApiHeaders(extraHeaders = {}, method = "GET") {
@@ -1555,6 +1608,7 @@ window.addEventListener("storage", () => {
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderVerseEditor();
 });
 
 siteLoginForm.addEventListener("submit", async (event) => {
@@ -1703,11 +1757,33 @@ if (prayerAdminRefreshBtn) {
 
 if (prayerAdminTestBtn) {
   prayerAdminTestBtn.addEventListener("click", async () => {
+    const verse = getRandomQuranVerse();
+    const prayerTestMessage = `Ezan vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.${verse ? `\n📖 ${verse}` : ""}`;
+    state.prayerTest = {
+      active: true,
+      message: prayerTestMessage,
+      triggeredAt: new Date().toISOString(),
+    };
+    savePrayerTestState();
+    await pushRemoteState();
+    activateEzanMode(prayerTestMessage);
     playEzanAuto();
-    activateEzanMode(`Admin ezan testi aktif 🤍 (${Math.floor(EZAN_MODE_DURATION_MS / 60000)} dakika ${Math.floor((EZAN_MODE_DURATION_MS % 60000) / 1000)} saniye) Kalbine huzur dolsun.`);
     await renderPrayerAdminMonitor();
     if (prayerAdminInfo) {
-      prayerAdminInfo.textContent = "Admin ezan testi başlatıldı. Ses ve sayaç bu panelden takip edilebilir.";
+      prayerAdminInfo.textContent = "Admin ezan testi partner ekranına gerçek ezan akışı gibi gönderildi.";
+    }
+  });
+}
+
+if (prayerAdminStopBtn) {
+  prayerAdminStopBtn.addEventListener("click", async () => {
+    state.prayerTest = getDefaultPrayerTestState();
+    savePrayerTestState();
+    await pushRemoteState();
+    stopEzanModeManually("Ezan testi sonlandırıldı.");
+    await renderPrayerAdminMonitor({ force: true });
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Admin ezan testi durduruldu.";
     }
   });
 }
