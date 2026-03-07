@@ -68,8 +68,8 @@ h2 {
 }
 
 .brand-logo-frame {
-  width: 160px;
-  height: 76px;
+  width: 220px;
+  height: 104px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -918,8 +918,8 @@ body.is-ezan-mode .topbar {
   }
 
   .brand-logo-frame {
-    width: 150px;
-    height: 68px;
+    width: 190px;
+    height: 88px;
   }
 
   .brand-logo {
