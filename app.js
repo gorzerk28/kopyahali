@@ -180,6 +180,7 @@ const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
 const partnerPrayerDoneBtn = document.getElementById("partnerPrayerDoneBtn");
+const ezanRetryBtn = document.getElementById("ezanRetryBtn");
 const prayerAdminStatus = document.getElementById("prayerAdminStatus");
 const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
 const prayerAdminNext = document.getElementById("prayerAdminNext");
@@ -298,6 +299,7 @@ const prayerRuntime = {
   lastAppliedRemotePrayerTestAt: null,
   audioRetryPending: false,
   audioRetryHandlersBound: false,
+  activeAudioSourceIndex: 0,
 };
 
 let ezanAudioEl = null;
@@ -367,6 +369,15 @@ function resolveEzanAudioUrl() {
   return { url: RAW_EZAN_AUDIO_URL, note: "Özel ezan sesi aktif." };
 }
 
+function resolveEzanAudioSources() {
+  const primary = resolveEzanAudioUrl();
+  const urls = [primary.url, DEFAULT_EZAN_AUDIO_URL].filter(Boolean);
+  return [...new Set(urls)].map((url, index) => ({
+    url,
+    label: index === 0 ? primary.note : "Yedek varsayılan ezan sesi",
+  }));
+}
+
 function normalizePrayerTimings(timings = {}) {
   const order = [
     ["Fajr", "İmsak"],
@@ -408,6 +419,7 @@ function activateEzanMode(message) {
   document.body.classList.add("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
   if (ezanModeText) ezanModeText.textContent = message;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
 }
 
 function getDefaultPrayerTestState() {
@@ -444,6 +456,7 @@ function isPrayerTestStillActive(prayerTest) {
 
 function stopEzanAudio() {
   prayerRuntime.audioRetryPending = false;
+  prayerRuntime.activeAudioSourceIndex = 0;
   if (prayerRuntime.audioStopTimer) {
     clearTimeout(prayerRuntime.audioStopTimer);
     prayerRuntime.audioStopTimer = null;
@@ -461,6 +474,7 @@ function stopEzanModeManually(message = "Namazın için kalbine alan açtım �
   if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
   stopEzanAudio();
   if (ezanModeText) ezanModeText.textContent = message;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
 }
 
 function disableEzanModeIfExpired() {
@@ -489,9 +503,10 @@ function bindEzanRetryOnInteraction() {
 }
 
 function playEzanAuto(options = {}) {
-  const { fromUserGesture = false } = options;
-  const source = resolveEzanAudioUrl();
-  if (!source.url) return;
+  const { fromUserGesture = false, sourceIndex = 0 } = options;
+  const sources = resolveEzanAudioSources();
+  const source = sources[sourceIndex];
+  if (!source?.url) return;
 
   stopEzanAudio();
 
@@ -500,6 +515,7 @@ function playEzanAuto(options = {}) {
   ezanAudioEl.volume = 1;
   ezanAudioEl.currentTime = 0;
   ezanAudioEl.loop = true;
+  prayerRuntime.activeAudioSourceIndex = sourceIndex;
 
   prayerRuntime.audioUntilMs = Date.now() + EZAN_MODE_DURATION_MS;
   prayerRuntime.audioStopTimer = setTimeout(() => {
@@ -512,20 +528,30 @@ function playEzanAuto(options = {}) {
     playPromise
       .then(() => {
         prayerRuntime.audioRetryPending = false;
+        if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
       })
-      .catch(() => {
+      .catch((error) => {
+        const hasFallback = sourceIndex + 1 < sources.length;
+        if (hasFallback) {
+          playEzanAuto({ fromUserGesture, sourceIndex: sourceIndex + 1 });
+          return;
+        }
+
         prayerRuntime.audioRetryPending = true;
         bindEzanRetryOnInteraction();
+        if (ezanRetryBtn) ezanRetryBtn.classList.remove("hidden");
+        const errorName = String(error?.name || "PlaybackError");
         if (ezanModeText) {
           ezanModeText.textContent = fromUserGesture
-            ? "Tarayıcı hâlâ sesi engelliyor 🤍 iPhone/iPad'de sessiz mod kapalıyken ekrana tekrar dokunmayı deneyebilir misin?"
-            : "Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin.";
+            ? `Tarayıcı hâlâ sesi engelliyor 🤍 (Hata: ${errorName}). iPhone/iPad'de ses seviyesi açıkken tekrar dokunabilir misin?`
+            : `Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin. (Hata: ${errorName})`;
         }
       });
     return;
   }
 
   prayerRuntime.audioRetryPending = false;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
 }
 
 function pushPrayerRomanticNotification(text) {
@@ -1854,6 +1880,12 @@ if (partnerPrayerDoneBtn) {
   partnerPrayerDoneBtn.addEventListener("click", async () => {
     stopEzanModeManually("Namazımı kılıyorum 🤍 Rabbim kabul etsin.");
     await renderPrayerAdminMonitor();
+  });
+}
+
+if (ezanRetryBtn) {
+  ezanRetryBtn.addEventListener("click", () => {
+    playEzanAuto({ fromUserGesture: true, sourceIndex: prayerRuntime.activeAudioSourceIndex || 0 });
   });
 }
 
