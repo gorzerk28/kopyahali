@@ -68,8 +68,8 @@ h2 {
 }
 
 .brand-logo-frame {
-  width: 160px;
-  height: 76px;
+  width: 220px;
+  height: 104px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -516,6 +516,21 @@ textarea {
   font-weight: 600;
 }
 
+.prayer-admin-card {
+  display: grid;
+  gap: 10px;
+}
+
+.prayer-admin-grid {
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.prayer-admin-grid p {
+  margin: 0;
+}
+
 body.is-ezan-mode .topbar {
   border-color: #cde8d9;
   box-shadow: 0 14px 30px rgba(56, 132, 91, 0.18);
@@ -903,8 +918,8 @@ body.is-ezan-mode .topbar {
   }
 
   .brand-logo-frame {
-    width: 150px;
-    height: 68px;
+    width: 190px;
+    height: 88px;
   }
 
   .brand-logo {

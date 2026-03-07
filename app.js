@@ -10,6 +10,9 @@ const OWNER_DEVICE_KEY = "kalp-postasi-owner-device";
 const SITE_LOGIN_ACTOR_KEY = "kalp-postasi-site-login-actor";
 const SERVICE_PAUSE_KEY = "kalp-postasi-service-pause";
 const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
+const REQUESTS_BACKUP_HISTORY_KEY = "kalp-postasi-requests-backup-history";
+const DELETED_REQUEST_IDS_KEY = "kalp-postasi-deleted-request-ids";
+const QURAN_VERSES_KEY = "kalp-postasi-quran-verses";
 
 const config = window.APP_CONFIG || {};
 const SYNC_MODE = (() => {
@@ -54,7 +57,6 @@ const STATIC_ONLY_HOSTS = ["github.io", "githubusercontent.com"];
 const RUNNING_ON_STATIC_ONLY_HOST = STATIC_ONLY_HOSTS.some((host) =>
   window.location.hostname.endsWith(host)
 );
-const PARTNER_EMAIL = String(config.partnerEmail || "").trim();
 let remoteSyncEnabled = SYNC_MODE !== "local";
 let hasWarnedRemoteUnavailable = false;
 let csrfToken = "";
@@ -72,7 +74,29 @@ const DEFAULT_DAILY_LOVE_MESSAGES = [
   "Seninle sıradan günler bile kutlama gibi geliyor. ✨",
 ];
 
+const DEFAULT_QURAN_VERSES = [
+  "Kalpler ancak Allah'ı anmakla huzur bulur. (Ra'd 13:28)",
+  "Rabbim! Göğsüme genişlik ver. (Tâhâ 20:25)",
+  "Şüphesiz Allah sabredenlerle beraberdir. (Bakara 2:153)",
+  "Her zorlukla beraber bir kolaylık vardır. (İnşirah 94:6)",
+  "Allah size kolaylık ister, zorluk istemez. (Bakara 2:185)",
+  "De ki: Allah'ın lütfu ve rahmetiyle sevinsinler. (Yûnus 10:58)",
+  "Rabbimiz, bize dünyada da iyilik ver, ahirette de iyilik ver. (Bakara 2:201)",
+  "Kim Allah'a tevekkül ederse O ona yeter. (Talâk 65:3)",
+  "Allah dilediğini hesapsız rızıklandırır. (Âl-i İmrân 3:37)",
+  "Rabbim, ilmimi artır. (Tâhâ 20:114)",
+  "Allah, müminlerin dostudur. (Bakara 2:257)",
+  "Allah, sabredenleri sever. (Âl-i İmrân 3:146)",
+  "Affetsinler, hoş görsünler. (Nûr 24:22)",
+  "İyilikle kötülük bir olmaz; sen kötülüğü en güzel şekilde sav. (Fussilet 41:34)",
+  "Rabbim, beni namazı dosdoğru kılanlardan eyle. (İbrâhim 14:40)",
+];
+
+const EZAN_MODE_DURATION_MS = (4 * 60 + 5) * 1000;
+
 const RELATIONSHIP_START_DATE = "2023-03-20";
+
+let deletedRequestIds = loadDeletedRequestIds();
 
 const state = {
   requests: loadRequests(),
@@ -80,6 +104,8 @@ const state = {
   activityTimeline: loadActivityTimeline(),
   loginLogs: loadLoginLogs(),
   dailyMessages: loadDailyMessages(),
+  quranVerses: loadQuranVerses(),
+  prayerTest: loadPrayerTestState(),
   partnerPresence: loadPartnerPresence(),
   servicePause: loadServicePause(),
   failedSiteAttempts: 0,
@@ -133,6 +159,10 @@ const dailyMessageForm = document.getElementById("dailyMessageForm");
 const dailyMessageInput = document.getElementById("dailyMessageInput");
 const dailyMessageInfo = document.getElementById("dailyMessageInfo");
 const dailyMessageResetBtn = document.getElementById("dailyMessageResetBtn");
+const verseForm = document.getElementById("verseForm");
+const verseInput = document.getElementById("verseInput");
+const verseInfo = document.getElementById("verseInfo");
+const verseResetBtn = document.getElementById("verseResetBtn");
 const mailStatusBadge = document.getElementById("mailStatusBadge");
 const mailStatusHint = document.getElementById("mailStatusHint");
 const servicePauseBanner = document.getElementById("servicePauseBanner");
@@ -149,8 +179,16 @@ const stormFlash = document.getElementById("stormFlash");
 const ezanModeBanner = document.getElementById("ezanModeBanner");
 const ezanModeText = document.getElementById("ezanModeText");
 const prayerCountdownHint = document.getElementById("prayerCountdownHint");
-const ezanTestBtn = document.getElementById("ezanTestBtn");
-const ezanSourceInfo = document.getElementById("ezanSourceInfo");
+const partnerPrayerDoneBtn = document.getElementById("partnerPrayerDoneBtn");
+const ezanRetryBtn = document.getElementById("ezanRetryBtn");
+const prayerAdminStatus = document.getElementById("prayerAdminStatus");
+const prayerAdminLastTrigger = document.getElementById("prayerAdminLastTrigger");
+const prayerAdminNext = document.getElementById("prayerAdminNext");
+const prayerAdminAudio = document.getElementById("prayerAdminAudio");
+const prayerAdminInfo = document.getElementById("prayerAdminInfo");
+const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
+const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
+const prayerAdminStopBtn = document.getElementById("prayerAdminStopBtn");
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -254,8 +292,14 @@ const prayerRuntime = {
   todayTimings: null,
   tomorrowTimings: null,
   modeUntilMs: 0,
+  audioUntilMs: 0,
+  audioStopTimer: null,
   lastAdhanTrigger: "",
   lastCountdownTrigger: "",
+  lastAppliedRemotePrayerTestAt: null,
+  audioRetryPending: false,
+  audioRetryHandlersBound: false,
+  activeAudioSourceIndex: 0,
 };
 
 let ezanAudioEl = null;
@@ -325,6 +369,15 @@ function resolveEzanAudioUrl() {
   return { url: RAW_EZAN_AUDIO_URL, note: "Özel ezan sesi aktif." };
 }
 
+function resolveEzanAudioSources() {
+  const primary = resolveEzanAudioUrl();
+  const urls = [primary.url, DEFAULT_EZAN_AUDIO_URL].filter(Boolean);
+  return [...new Set(urls)].map((url, index) => ({
+    url,
+    label: index === 0 ? primary.note : "Yedek varsayılan ezan sesi",
+  }));
+}
+
 function normalizePrayerTimings(timings = {}) {
   const order = [
     ["Fajr", "İmsak"],
@@ -362,10 +415,66 @@ async function ensurePrayerTimesForDate(dateKey) {
 }
 
 function activateEzanMode(message) {
-  prayerRuntime.modeUntilMs = Date.now() + 60 * 1000;
+  prayerRuntime.modeUntilMs = Date.now() + EZAN_MODE_DURATION_MS;
   document.body.classList.add("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.remove("hidden");
   if (ezanModeText) ezanModeText.textContent = message;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
+}
+
+function getDefaultPrayerTestState() {
+  return {
+    active: false,
+    message: "",
+    triggeredAt: null,
+  };
+}
+
+function loadPrayerTestState() {
+  return getDefaultPrayerTestState();
+}
+
+function normalizePrayerTestState(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    active: Boolean(input.active),
+    message: String(input.message || "").trim(),
+    triggeredAt: input.triggeredAt ? String(input.triggeredAt) : null,
+  };
+}
+
+function savePrayerTestState() {
+  queueRemotePush();
+}
+
+function isPrayerTestStillActive(prayerTest) {
+  if (!prayerTest?.active || !prayerTest?.triggeredAt) return false;
+  const triggeredAtMs = new Date(prayerTest.triggeredAt).getTime();
+  if (!Number.isFinite(triggeredAtMs)) return false;
+  return Date.now() - triggeredAtMs < EZAN_MODE_DURATION_MS;
+}
+
+function stopEzanAudio() {
+  prayerRuntime.audioRetryPending = false;
+  prayerRuntime.activeAudioSourceIndex = 0;
+  if (prayerRuntime.audioStopTimer) {
+    clearTimeout(prayerRuntime.audioStopTimer);
+    prayerRuntime.audioStopTimer = null;
+  }
+  prayerRuntime.audioUntilMs = 0;
+
+  if (!ezanAudioEl) return;
+  ezanAudioEl.pause();
+  ezanAudioEl.currentTime = 0;
+}
+
+function stopEzanModeManually(message = "Namazın için kalbine alan açtım 🤍") {
+  prayerRuntime.modeUntilMs = 0;
+  document.body.classList.remove("is-ezan-mode");
+  if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
+  stopEzanAudio();
+  if (ezanModeText) ezanModeText.textContent = message;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
 }
 
 function disableEzanModeIfExpired() {
@@ -374,25 +483,103 @@ function disableEzanModeIfExpired() {
   prayerRuntime.modeUntilMs = 0;
   document.body.classList.remove("is-ezan-mode");
   if (ezanModeBanner) ezanModeBanner.classList.add("hidden");
+  stopEzanAudio();
 }
 
-function playEzanAuto() {
-  const source = resolveEzanAudioUrl();
-  if (!source.url) return;
-  if (ezanAudioEl) {
-    ezanAudioEl.pause();
-    ezanAudioEl = null;
-  }
+
+function bindEzanRetryOnInteraction() {
+  if (prayerRuntime.audioRetryHandlersBound) return;
+
+  const retry = () => {
+    if (!prayerRuntime.audioRetryPending) return;
+    playEzanAuto({ fromUserGesture: true });
+  };
+
+  ["pointerdown", "touchstart", "click", "keydown"].forEach((eventName) => {
+    window.addEventListener(eventName, retry, { passive: true });
+  });
+
+  prayerRuntime.audioRetryHandlersBound = true;
+}
+
+function playEzanAuto(options = {}) {
+  const { fromUserGesture = false, sourceIndex = 0 } = options;
+  const sources = resolveEzanAudioSources();
+  const source = sources[sourceIndex];
+  if (!source?.url) return;
+
+  stopEzanAudio();
 
   ezanAudioEl = new Audio(source.url);
   ezanAudioEl.preload = "auto";
   ezanAudioEl.volume = 1;
   ezanAudioEl.currentTime = 0;
-  ezanAudioEl.play().catch(() => {
-    if (ezanModeText) {
-      ezanModeText.textContent = "Ezan vakti girdi 🤍 Tarayıcı sesi engelledi; ekrana dokununca otomatik deneme tekrar yapılacak.";
-    }
-  });
+  ezanAudioEl.loop = true;
+  prayerRuntime.activeAudioSourceIndex = sourceIndex;
+
+  prayerRuntime.audioUntilMs = Date.now() + EZAN_MODE_DURATION_MS;
+  prayerRuntime.audioStopTimer = setTimeout(() => {
+    stopEzanAudio();
+  }, EZAN_MODE_DURATION_MS);
+
+  const playPromise = ezanAudioEl.play();
+
+  if (playPromise && typeof playPromise.then === "function") {
+    playPromise
+      .then(() => {
+        prayerRuntime.audioRetryPending = false;
+        if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
+      })
+      .catch((error) => {
+        const hasFallback = sourceIndex + 1 < sources.length;
+        if (hasFallback) {
+          playEzanAuto({ fromUserGesture, sourceIndex: sourceIndex + 1 });
+          return;
+        }
+
+        prayerRuntime.audioRetryPending = true;
+        bindEzanRetryOnInteraction();
+        if (ezanRetryBtn) ezanRetryBtn.classList.remove("hidden");
+        const errorName = String(error?.name || "PlaybackError");
+        if (ezanModeText) {
+          ezanModeText.textContent = fromUserGesture
+            ? `Tarayıcı hâlâ sesi engelliyor 🤍 (Hata: ${errorName}). iPhone/iPad'de ses seviyesi açıkken tekrar dokunabilir misin?`
+            : `Ezan vakti kalbine usulca dokundu 🤍 Tarayıcı sesi engelledi; ekrana nazik bir dokunuşla sesi hemen başlatabilirsin. (Hata: ${errorName})`;
+        }
+      });
+    return;
+  }
+
+  prayerRuntime.audioRetryPending = false;
+  if (ezanRetryBtn) ezanRetryBtn.classList.add("hidden");
+}
+
+function pushPrayerRomanticNotification(text) {
+  const actor = getCurrentSessionActor();
+  if (actor !== "Sevgilin") return;
+
+  const item = {
+    id: `n-prayer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    title: "🤍 Namaz Vakti Hatırlatması",
+    message: text,
+    read: false,
+    target: "partner",
+    createdAt: new Date().toISOString(),
+  };
+
+  state.customNotifications.unshift(item);
+  state.customNotifications = state.customNotifications.slice(0, 80);
+  saveCustomNotifications();
+  renderTrackNotifications();
+  updateNotificationBell();
+}
+
+function getRandomQuranVerse() {
+  const verses = Array.isArray(state.quranVerses) && state.quranVerses.length
+    ? state.quranVerses
+    : DEFAULT_QURAN_VERSES;
+  const index = Math.floor(Math.random() * verses.length);
+  return String(verses[index] || "").trim();
 }
 
 function renderPrayerCountdown(text = "") {
@@ -406,6 +593,76 @@ function renderPrayerCountdown(text = "") {
   prayerCountdownHint.classList.remove("hidden");
 }
 
+function formatMinuteDiff(totalMinutes = 0) {
+  if (!Number.isFinite(totalMinutes)) return "-";
+  const normalized = Math.max(0, Math.floor(totalMinutes));
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  if (h <= 0) return `${m} dk`;
+  return `${h} sa ${m} dk`;
+}
+
+async function renderPrayerAdminMonitor(options = {}) {
+  if (!prayerAdminStatus || !prayerAdminLastTrigger || !prayerAdminNext || !prayerAdminAudio) return;
+
+  const { force = false } = options;
+  const adminSessionActive = localStorage.getItem(ADMIN_SESSION_KEY) === "1";
+
+  if (!adminSessionActive) {
+    prayerAdminStatus.textContent = "Admin girişi bekleniyor";
+    prayerAdminLastTrigger.textContent = "-";
+    prayerAdminNext.textContent = "-";
+    prayerAdminAudio.textContent = "-";
+    return;
+  }
+
+  if (!remoteSyncEnabled) {
+    prayerAdminStatus.textContent = "Sunucu bağlantısı yok";
+    prayerAdminNext.textContent = "Vakit verisi alınamadı";
+    prayerAdminAudio.textContent = "Ses kapalı";
+    prayerAdminLastTrigger.textContent = prayerRuntime.lastAdhanTrigger || "-";
+    return;
+  }
+
+  const now = getIstanbulNowParts();
+  const needsPrayerFetch = force || prayerRuntime.dateKey !== now.dateKey || !prayerRuntime.todayTimings;
+  if (needsPrayerFetch) {
+    await ensurePrayerTimesForDate(now.dateKey);
+  }
+
+  const modeLeftMs = Math.max(0, prayerRuntime.modeUntilMs - Date.now());
+  const modeActive = modeLeftMs > 0;
+  prayerAdminStatus.textContent = modeActive
+    ? `Aktif (${Math.ceil(modeLeftMs / 1000)} sn kaldı)`
+    : "Pasif";
+
+  const audioLeftMs = Math.max(0, prayerRuntime.audioUntilMs - Date.now());
+  const audioActive = audioLeftMs > 0;
+  prayerAdminAudio.textContent = audioActive
+    ? `Ezan çalıyor (${Math.ceil(audioLeftMs / 1000)} sn kaldı)`
+    : "Ses kapalı";
+
+  const todayTimings = prayerRuntime.todayTimings || [];
+  const tomorrowTimings = prayerRuntime.tomorrowTimings || [];
+  let nextPrayer = todayTimings.find((item) => item.minute > now.minutes) || null;
+  let minutesLeft = 0;
+
+  if (nextPrayer) {
+    minutesLeft = nextPrayer.minute - now.minutes;
+  } else if (tomorrowTimings.length) {
+    nextPrayer = tomorrowTimings[0];
+    minutesLeft = nextPrayer.minute + 24 * 60 - now.minutes;
+  }
+
+  prayerAdminNext.textContent = nextPrayer
+    ? `${nextPrayer.label} (${nextPrayer.time}) • ${formatMinuteDiff(minutesLeft)} kaldı`
+    : "Namaz vakti verisi yok";
+
+  prayerAdminLastTrigger.textContent = prayerRuntime.lastAdhanTrigger
+    ? prayerRuntime.lastAdhanTrigger
+    : "Henüz tetiklenmedi";
+}
+
 async function tickPrayerMode() {
   const isUnlocked = sessionStorage.getItem(SITE_SESSION_KEY) === "1";
   const actor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
@@ -416,6 +673,20 @@ async function tickPrayerMode() {
     renderPrayerCountdown("");
     return;
   }
+
+  const activePrayerTest = normalizePrayerTestState(state.prayerTest);
+  const triggerKey = activePrayerTest.triggeredAt || null;
+  if (isPrayerTestStillActive(activePrayerTest) && activePrayerTest.message) {
+    if (prayerRuntime.lastAppliedRemotePrayerTestAt !== triggerKey) {
+      prayerRuntime.lastAppliedRemotePrayerTestAt = triggerKey;
+      activateEzanMode(activePrayerTest.message);
+      playEzanAuto();
+    }
+    disableEzanModeIfExpired();
+    return;
+  }
+
+  prayerRuntime.lastAppliedRemotePrayerTestAt = null;
 
   const now = getIstanbulNowParts();
   const ready = await ensurePrayerTimesForDate(now.dateKey);
@@ -434,8 +705,12 @@ async function tickPrayerMode() {
     const adhanTrigger = `${now.dateKey}-${exactPrayer.key}-${now.minutes}`;
     if (prayerRuntime.lastAdhanTrigger !== adhanTrigger) {
       prayerRuntime.lastAdhanTrigger = adhanTrigger;
-      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Namaza davet vakti. Allah kabul etsin.`);
+      const verse = getRandomQuranVerse();
+      activateEzanMode(`${exactPrayer.label} vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.${verse ? `\n📖 ${verse}` : ""}`);
       playEzanAuto();
+      pushPrayerRomanticNotification(
+        `${exactPrayer.label} vakti girdi 🤍 Bir tanem, abdestini alıp namaza geçmek için çok güzel bir an. Rabbim kalbine huzur versin.${verse ? `\n📖 ${verse}` : ""}`
+      );
     }
   }
 
@@ -447,6 +722,9 @@ async function tickPrayerMode() {
       if (prayerRuntime.lastCountdownTrigger !== countdownKey) {
         prayerRuntime.lastCountdownTrigger = countdownKey;
         renderPrayerCountdown(`${nextPrayer.label} vaktine 20 dakika kaldı 🌙 Müsaitsen kalbim seninle; Rabbim huzur versin.`);
+        pushPrayerRomanticNotification(
+          `${nextPrayer.label} vaktine 20 dakika kaldı 🌙 Bir tanem, hazırlanıp namaza yetişmen için tatlı bir hatırlatma bırakayım dedim.`
+        );
       }
     }
   }
@@ -487,8 +765,27 @@ function loadDailyMessages() {
   }
 }
 
+function loadQuranVerses() {
+  const raw = localStorage.getItem(QURAN_VERSES_KEY);
+  if (!raw) return [...DEFAULT_QURAN_VERSES];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_QURAN_VERSES];
+    const cleaned = parsed.map((item) => String(item).trim()).filter(Boolean);
+    return cleaned.length ? cleaned : [...DEFAULT_QURAN_VERSES];
+  } catch {
+    return [...DEFAULT_QURAN_VERSES];
+  }
+}
+
 function saveDailyMessages() {
   localStorage.setItem(DAILY_MESSAGES_KEY, JSON.stringify(state.dailyMessages));
+  queueRemotePush();
+}
+
+function saveQuranVerses() {
+  localStorage.setItem(QURAN_VERSES_KEY, JSON.stringify(state.quranVerses));
   queueRemotePush();
 }
 
@@ -556,6 +853,11 @@ function renderLoginLogs() {
 function renderDailyMessageEditor() {
   if (!dailyMessageInput) return;
   dailyMessageInput.value = state.dailyMessages.join("\n");
+}
+
+function renderVerseEditor() {
+  if (!verseInput) return;
+  verseInput.value = state.quranVerses.join("\n");
 }
 
 function addActivity(type, text) {
@@ -648,6 +950,7 @@ function playCelebrationBurst(mode = "soft") {
 
 function getSerializableState(options = {}) {
   const { deletedRequestIds = [] } = options;
+  const mergedDeletedIds = normalizeDeletedRequestIds([...deletedRequestIds, ...getDeletedRequestIds()]);
 
   const payload = {
     requests: state.requests,
@@ -655,12 +958,14 @@ function getSerializableState(options = {}) {
     activityTimeline: state.activityTimeline,
     loginLogs: state.loginLogs,
     dailyMessages: state.dailyMessages,
+    quranVerses: state.quranVerses,
+    prayerTest: normalizePrayerTestState(state.prayerTest),
     partnerPresence: state.partnerPresence,
     servicePause: state.servicePause,
   };
 
-  if (Array.isArray(deletedRequestIds) && deletedRequestIds.length) {
-    payload.deletedRequestIds = deletedRequestIds;
+  if (mergedDeletedIds.length) {
+    payload.deletedRequestIds = mergedDeletedIds;
   }
 
   return payload;
@@ -724,6 +1029,7 @@ function shouldProtectLocalRequestsOnRemotePull(remote) {
 
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
+  addDeletedRequestIds(Array.isArray(remote.deletedRequestIds) ? remote.deletedRequestIds : []);
 
   const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
   if (protectLocalRequests) {
@@ -733,7 +1039,7 @@ function applyRemoteState(remote) {
     }
   }
 
-  state.requests = mergeRequestsPreferLatest(state.requests, remote.requests);
+  state.requests = filterOutDeletedRequests(mergeRequestsPreferLatest(state.requests, remote.requests));
   state.customNotifications = Array.isArray(remote.customNotifications)
     ? remote.customNotifications
     : state.customNotifications;
@@ -744,6 +1050,10 @@ function applyRemoteState(remote) {
   state.dailyMessages = Array.isArray(remote.dailyMessages) && remote.dailyMessages.length
     ? remote.dailyMessages
     : state.dailyMessages;
+  state.quranVerses = Array.isArray(remote.quranVerses) && remote.quranVerses.length
+    ? remote.quranVerses
+    : state.quranVerses;
+  state.prayerTest = normalizePrayerTestState(remote.prayerTest);
   state.partnerPresence = remote.partnerPresence && typeof remote.partnerPresence === "object"
     ? remote.partnerPresence
     : state.partnerPresence;
@@ -770,6 +1080,8 @@ function applyRemoteState(remote) {
   saveActivityTimeline();
   saveLoginLogs();
   saveDailyMessages();
+  saveQuranVerses();
+  savePrayerTestState();
   savePartnerPresence();
   saveServicePause();
   suppressRemotePush = false;
@@ -783,7 +1095,9 @@ function applyRemoteState(remote) {
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderVerseEditor();
   renderServicePauseUI();
+  tickPrayerMode();
 }
 
 function getApiHeaders(extraHeaders = {}, method = "GET") {
@@ -1163,7 +1477,8 @@ function renderServicePauseUI() {
     servicePauseMessage.textContent = getServicePauseMessage();
   }
 
-  if (toggleServicePauseBtn) {
+  
+if (toggleServicePauseBtn) {
     toggleServicePauseBtn.textContent = isPaused ? "Sinirli Modu Kapat" : "Sinirli Modu Aç";
   }
 
@@ -1196,21 +1511,106 @@ function playLoveBurst() {
   }
 }
 
-function loadRequests() {
-  const raw = localStorage.getItem(STORAGE_KEY);
+function normalizeLoadedRequests(items = []) {
+  return filterOutDeletedRequests(
+    (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      partnerNotified: item.partnerNotified ?? true,
+    }))
+  );
+}
+
+function normalizeDeletedRequestIds(items = []) {
+  return [...new Set((Array.isArray(items) ? items : []).map((id) => String(id)).filter(Boolean))];
+}
+
+function getDeletedRequestIds() {
+  return normalizeDeletedRequestIds(deletedRequestIds);
+}
+
+function loadDeletedRequestIds() {
+  const raw = localStorage.getItem(DELETED_REQUEST_IDS_KEY);
   if (!raw) return [];
 
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.map((item) => ({
-      ...item,
-      partnerNotified: item.partnerNotified ?? true,
-    }));
+    return normalizeDeletedRequestIds(parsed);
   } catch {
     return [];
   }
+}
+
+function saveDeletedRequestIds() {
+  localStorage.setItem(DELETED_REQUEST_IDS_KEY, JSON.stringify(getDeletedRequestIds()));
+}
+
+function filterOutDeletedRequests(items = []) {
+  const deletedSet = new Set(getDeletedRequestIds());
+  if (!deletedSet.size) return Array.isArray(items) ? items : [];
+  return (Array.isArray(items) ? items : []).filter((item) => !deletedSet.has(String(item?.id)));
+}
+
+function pruneRequestBackupsByDeletedIds() {
+  const deletedSet = new Set(getDeletedRequestIds());
+  if (!deletedSet.size) return;
+
+  const backup = loadRequestsBackup();
+  if (backup.length) {
+    localStorage.setItem(
+      REQUESTS_BACKUP_KEY,
+      JSON.stringify(backup.filter((item) => !deletedSet.has(String(item?.id))))
+    );
+  }
+
+  const history = loadRequestsBackupHistory();
+  if (!history.length) return;
+
+  const sanitizedHistory = history
+    .map((snapshot) => ({
+      ...snapshot,
+      requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(
+        (item) => !deletedSet.has(String(item?.id))
+      ),
+    }))
+    .filter((snapshot) => snapshot.requests.length);
+
+  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sanitizedHistory));
+}
+
+function addDeletedRequestIds(ids = []) {
+  const current = getDeletedRequestIds();
+  const next = normalizeDeletedRequestIds([...current, ...ids]);
+  if (next.length === current.length) return;
+
+  deletedRequestIds = next;
+  state.requests = filterOutDeletedRequests(state.requests);
+  saveDeletedRequestIds();
+  pruneRequestBackupsByDeletedIds();
+}
+
+function loadRequests() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        return normalizeLoadedRequests(parsed);
+      }
+    } catch {
+      // yedek katmanlarına düş
+    }
+  }
+
+  const directBackup = loadRequestsBackup();
+  if (directBackup.length) return normalizeLoadedRequests(directBackup);
+
+  const history = loadRequestsBackupHistory();
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const candidate = Array.isArray(history[i]?.requests) ? history[i].requests : [];
+    if (candidate.length) return normalizeLoadedRequests(candidate);
+  }
+
+  return [];
 }
 
 function loadRequestsBackup() {
@@ -1226,7 +1626,38 @@ function loadRequestsBackup() {
 }
 
 function saveRequestsBackup() {
-  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(state.requests));
+  localStorage.setItem(REQUESTS_BACKUP_KEY, JSON.stringify(filterOutDeletedRequests(state.requests)));
+}
+
+function loadRequestsBackupHistory() {
+  const raw = localStorage.getItem(REQUESTS_BACKUP_HISTORY_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRequestsBackupHistory() {
+  const current = filterOutDeletedRequests(Array.isArray(state.requests) ? state.requests : []);
+  if (!current.length) return;
+
+  const history = loadRequestsBackupHistory();
+  const latest = history[history.length - 1];
+  const latestSerialized = latest ? JSON.stringify(latest.requests || []) : "";
+  const currentSerialized = JSON.stringify(current);
+  if (latestSerialized === currentSerialized) return;
+
+  history.push({
+    at: new Date().toISOString(),
+    requests: current,
+  });
+
+  const sliced = history.slice(-120);
+  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sliced));
 }
 
 function loadCustomNotifications() {
@@ -1248,9 +1679,16 @@ function loadCustomNotifications() {
 }
 
 function saveRequests() {
+  state.requests = filterOutDeletedRequests(state.requests);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.requests));
   saveRequestsBackup();
+  saveRequestsBackupHistory();
   queueRemotePush();
+}
+
+function persistRequestBackupsNow() {
+  saveRequestsBackup();
+  saveRequestsBackupHistory();
 }
 
 function saveCustomNotifications() {
@@ -1302,10 +1740,12 @@ window.addEventListener("storage", () => {
   state.activityTimeline = loadActivityTimeline();
   state.loginLogs = loadLoginLogs();
   state.dailyMessages = loadDailyMessages();
+  state.quranVerses = loadQuranVerses();
   renderActivityTimeline();
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
+  renderVerseEditor();
 });
 
 siteLoginForm.addEventListener("submit", async (event) => {
@@ -1436,15 +1876,58 @@ notificationBell.addEventListener("click", () => {
   trackNotifications.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-if (ezanSourceInfo) {
-  const source = resolveEzanAudioUrl();
-  ezanSourceInfo.textContent = source.note;
+if (partnerPrayerDoneBtn) {
+  partnerPrayerDoneBtn.addEventListener("click", async () => {
+    stopEzanModeManually("Namazımı kılıyorum 🤍 Rabbim kabul etsin.");
+    await renderPrayerAdminMonitor();
+  });
 }
 
-if (ezanTestBtn) {
-  ezanTestBtn.addEventListener("click", () => {
+if (ezanRetryBtn) {
+  ezanRetryBtn.addEventListener("click", () => {
+    playEzanAuto({ fromUserGesture: true, sourceIndex: prayerRuntime.activeAudioSourceIndex || 0 });
+  });
+}
+
+if (prayerAdminRefreshBtn) {
+  prayerAdminRefreshBtn.addEventListener("click", async () => {
+    await renderPrayerAdminMonitor({ force: true });
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Namaz vakti paneli güncellendi.";
+    }
+  });
+}
+
+if (prayerAdminTestBtn) {
+  prayerAdminTestBtn.addEventListener("click", async () => {
+    const verse = getRandomQuranVerse();
+    const prayerTestMessage = `Ezan vakti girdi 🤍 Kalbim seninle; namazın huzurla kabul olsun.${verse ? `\n📖 ${verse}` : ""}`;
+    state.prayerTest = {
+      active: true,
+      message: prayerTestMessage,
+      triggeredAt: new Date().toISOString(),
+    };
+    savePrayerTestState();
+    await pushRemoteState();
+    activateEzanMode(prayerTestMessage);
     playEzanAuto();
-    activateEzanMode("Ezan testi çalıyor 🤍");
+    await renderPrayerAdminMonitor();
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Admin ezan testi partner ekranına gerçek ezan akışı gibi gönderildi.";
+    }
+  });
+}
+
+if (prayerAdminStopBtn) {
+  prayerAdminStopBtn.addEventListener("click", async () => {
+    state.prayerTest = getDefaultPrayerTestState();
+    savePrayerTestState();
+    await pushRemoteState();
+    stopEzanModeManually("Ezan testi sonlandırıldı.");
+    await renderPrayerAdminMonitor({ force: true });
+    if (prayerAdminInfo) {
+      prayerAdminInfo.textContent = "Admin ezan testi durduruldu.";
+    }
   });
 }
 
@@ -1546,14 +2029,6 @@ function buildNotificationText(item, status, result) {
 async function renderMailSetupStatus() {
   if (!mailStatusBadge || !mailStatusHint) return;
 
-  if (!PARTNER_EMAIL) {
-    mailStatusBadge.textContent = "Hazır Değil";
-    mailStatusBadge.classList.add("offline");
-    mailStatusBadge.classList.remove("online");
-    mailStatusHint.textContent = "1) config.js içinde partnerEmail alanını doldur.";
-    return;
-  }
-
   try {
     const response = await fetch(`${NOTIFY_ENDPOINT}/status`, {
       cache: "no-store",
@@ -1564,11 +2039,11 @@ async function renderMailSetupStatus() {
 
     const payload = await response.json();
 
-    if (payload.ready) {
+    if (payload.ready && payload.partnerEmailConfigured) {
       mailStatusBadge.textContent = "Hazır";
       mailStatusBadge.classList.remove("offline");
       mailStatusBadge.classList.add("online");
-      mailStatusHint.textContent = `Alıcı: ${PARTNER_EMAIL}`;
+      mailStatusHint.textContent = "Alıcı e-posta sunucu ortamında tanımlı.";
       return;
     }
 
@@ -1576,7 +2051,8 @@ async function renderMailSetupStatus() {
     mailStatusBadge.classList.add("offline");
     mailStatusBadge.classList.remove("online");
     const missing = Array.isArray(payload.missing) ? payload.missing.join(", ") : "Render env ayarları";
-    mailStatusHint.textContent = `2) Render Environment'a şunları ekle: ${missing}`;
+    const partnerEmailMissing = payload.partnerEmailConfigured ? "" : ", PARTNER_EMAIL";
+    mailStatusHint.textContent = `Render Environment'a şunları ekle: ${missing}${partnerEmailMissing}`;
   } catch {
     mailStatusBadge.textContent = "Kontrol Edilemedi";
     mailStatusBadge.classList.add("offline");
@@ -1598,10 +2074,6 @@ function buildEmailBody(item, status, result) {
 }
 
 async function sendEmailNotification(item, status, result) {
-  if (!PARTNER_EMAIL) {
-    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
-  }
-
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
@@ -1609,7 +2081,6 @@ async function sendEmailNotification(item, status, result) {
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
-        to: PARTNER_EMAIL,
         subject: `Talebin cevaplandı: ${item.title}`,
         text: buildEmailBody(item, status, result),
       }),
@@ -1636,10 +2107,6 @@ async function sendEmailNotification(item, status, result) {
 
 
 async function sendManualEmail(subject, text) {
-  if (!PARTNER_EMAIL) {
-    return { ok: false, message: "Önce config.js içinde partnerEmail alanını doldur." };
-  }
-
   try {
     const response = await fetch(NOTIFY_ENDPOINT, {
       method: "POST",
@@ -1647,7 +2114,6 @@ async function sendManualEmail(subject, text) {
       credentials: REMOTE_FETCH_CREDENTIALS,
       body: JSON.stringify({
         channel: "email",
-        to: PARTNER_EMAIL,
         subject,
         text,
       }),
@@ -1729,6 +2195,7 @@ function createAdminCard(item) {
   const form = node.querySelector('[data-role="updateForm"]');
   const notifyBtn = node.querySelector('[data-role="notifyBtn"]');
   const mailBtn = node.querySelector('[data-role="mailBtn"]');
+  const archiveBtn = node.querySelector('[data-role="archiveBtn"]');
   const deleteBtn = node.querySelector('[data-role="deleteBtn"]');
   const notifyInfo = node.querySelector('[data-role="notifyInfo"]');
 
@@ -1805,17 +2272,48 @@ function createAdminCard(item) {
     mailBtn.disabled = false;
   });
 
-  deleteBtn.addEventListener("click", async () => {
-    const confirmed = confirm(`"${item.title}" talebini kalıcı olarak silmek istiyor musun?`);
+  archiveBtn.addEventListener("click", async () => {
+    const confirmed = confirm(
+      `"${item.title}" talebini arşive almak istiyor musun? Talep verisi kalıcı olarak saklanır, silinmez.`
+    );
     if (!confirmed) return;
 
     await syncBeforeMutation();
 
+    const target = state.requests.find((req) => req.id === item.id);
+    if (!target) return;
+
+    target.status = "Arşivlendi";
+    target.result = target.result || "Talep arşive alındı. İstenirse tekrar aktif edilebilir 💞";
+    target.isArchived = true;
+    target.archivedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
+    target._rev = Number(target._rev || 0) + 1;
+
+    saveRequests();
+    await pushRemoteState({ force: true });
+    adminDrafts.delete(String(item.id));
+    addActivity("admin", `Talep arşive alındı (silinmedi): ${item.title}`);
+
+    renderTrackNotifications();
+    renderTrackList();
+    renderAdminList();
+  });
+
+  deleteBtn.addEventListener("click", async () => {
+    const confirmed = confirm(
+      `"${item.title}" talebini kalıcı silmek üzeresin. Bu işlem geri alınamaz. Devam etmek istiyor musun?`
+    );
+    if (!confirmed) return;
+
+    await syncBeforeMutation();
+
+    addDeletedRequestIds([item.id]);
     state.requests = state.requests.filter((req) => req.id !== item.id);
     saveRequests();
-    await pushRemoteState({ deletedRequestIds: [item.id] });
+    await pushRemoteState({ force: true, deletedRequestIds: [item.id] });
     adminDrafts.delete(String(item.id));
-    addActivity("admin", `Talep silindi: ${item.title}`);
+    addActivity("admin", `Talep kalıcı silindi: ${item.title}`);
 
     renderTrackNotifications();
     renderTrackList();
@@ -1838,7 +2336,18 @@ function renderAdminList() {
 }
 
 async function restoreRequestsFromBackup() {
-  const backup = loadRequestsBackup();
+  let backup = loadRequestsBackup();
+  if (!backup.length) {
+    const history = loadRequestsBackupHistory();
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const candidate = Array.isArray(history[i]?.requests) ? history[i].requests : [];
+      if (candidate.length) {
+        backup = candidate;
+        break;
+      }
+    }
+  }
+
   if (!backup.length) {
     await pullRemoteState();
     if (state.requests.length) {
@@ -1849,12 +2358,13 @@ async function restoreRequestsFromBackup() {
     }
     return {
       ok: false,
-      message: "Yerel yedekte talep bulunamadı. Bu cihazda yedek yoksa önce 'Talep Yenile' ile sunucudan çekmeyi dene.",
+      message: "Yerel/çoklu yedekte talep bulunamadı. Sunucuda da yoksa tarayıcı verisi temizlenmiş olabilir.",
     };
   }
 
   const beforeCount = state.requests.length;
   state.requests = mergeRequestsPreferLatest(state.requests, backup);
+  state.requests = filterOutDeletedRequests(state.requests);
   const afterCount = state.requests.length;
   saveRequests();
   renderTrackList();
@@ -2003,6 +2513,7 @@ function setAdminSession(isActive) {
     renderAdminList();
     renderPresenceBadge();
     renderActivityTimeline();
+    renderPrayerAdminMonitor({ force: true });
   }
 }
 
@@ -2079,6 +2590,39 @@ if (dailyMessageResetBtn) {
     renderDailyMessageEditor();
     dailyMessageInfo.textContent = "Varsayılan romantik sözlere dönüldü.";
     addActivity("admin", "Günün mesajları varsayılana döndürüldü.");
+  });
+}
+
+
+if (verseForm) {
+  verseForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const lines = verseInput.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) {
+      verseInfo.textContent = "En az bir ayet girmelisin.";
+      return;
+    }
+
+    state.quranVerses = lines;
+    saveQuranVerses();
+    renderVerseEditor();
+    verseInfo.textContent = "Ayet listesi güncellendi 🤍";
+    addActivity("admin", "Ezan için ayet listesi güncellendi.");
+  });
+}
+
+if (verseResetBtn) {
+  verseResetBtn.addEventListener("click", () => {
+    state.quranVerses = [...DEFAULT_QURAN_VERSES];
+    localStorage.removeItem(QURAN_VERSES_KEY);
+    renderVerseEditor();
+    verseInfo.textContent = "Varsayılan ayet listesine dönüldü.";
+    addActivity("admin", "Ezan ayetleri varsayılan listeye döndürüldü.");
   });
 }
 
@@ -2163,6 +2707,7 @@ if (servicePauseMessageResetBtn) {
 renderDailyLoveMessage();
 renderLoveMilestone();
 renderDailyMessageEditor();
+renderVerseEditor();
 renderServicePauseUI();
 renderTrackNotifications();
 renderTrackList();
@@ -2172,6 +2717,7 @@ renderMailSetupStatus();
 setAdminSession(false);
 setSiteSession(false);
 renderPresenceBadge();
+renderPrayerAdminMonitor();
 if (remoteSyncEnabled) {
   if (RUNNING_ON_STATIC_ONLY_HOST && REMOTE_STATE_IS_SAME_ORIGIN) {
     remoteSyncEnabled = false;
@@ -2197,4 +2743,10 @@ setInterval(updatePresenceHeartbeat, 5000);
 setInterval(renderPresenceBadge, 5000);
 setInterval(renderLoveMilestone, 60 * 1000);
 setInterval(tickPrayerMode, 30 * 1000);
+setInterval(renderPrayerAdminMonitor, 5000);
+setInterval(persistRequestBackupsNow, 30 * 1000);
 tickPrayerMode();
+
+window.addEventListener("beforeunload", () => {
+  persistRequestBackupsNow();
+});
