@@ -66,6 +66,7 @@ function defaultState() {
       active: false,
       reason: "",
       updatedAt: null,
+      sticky: false,
     },
     updatedAt: new Date().toISOString(),
   };
@@ -286,8 +287,9 @@ function writeState(next) {
             active: Boolean(next.servicePause.active),
             reason: String(next.servicePause.reason || "").trim(),
             updatedAt: next.servicePause.updatedAt || new Date().toISOString(),
+            sticky: Boolean(next.servicePause.sticky),
           }
-        : { active: false, reason: "", updatedAt: null },
+        : { active: false, reason: "", updatedAt: null, sticky: false },
     updatedAt: new Date().toISOString(),
   };
   const rawSafe = JSON.stringify(safe, null, 2);
@@ -303,7 +305,55 @@ function getRequestRevision(item) {
   return Math.floor(parsed);
 }
 
-function mergeState(next) {
+function normalizeServicePause(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    active: Boolean(input.active),
+    reason: String(input.reason || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+    sticky: Boolean(input.sticky),
+    allowDeactivate: Boolean(input.allowDeactivate),
+  };
+}
+
+function mergeServicePause(currentValue, incomingValue, canAdminUnlock = false) {
+  const current = normalizeServicePause(currentValue);
+  const incoming = normalizeServicePause(incomingValue);
+  const currentMs = Date.parse(current.updatedAt || "") || 0;
+  const incomingMs = Date.parse(incoming.updatedAt || "") || 0;
+
+  // Sticky kilit aktifken yalnızca admin ve açık unlock sinyali kapatabilir.
+  if (current.active && current.sticky && !incoming.active) {
+    if (!canAdminUnlock || !incoming.allowDeactivate) {
+      return {
+        active: true,
+        reason: current.reason,
+        updatedAt: current.updatedAt || new Date().toISOString(),
+        sticky: true,
+      };
+    }
+  }
+
+  const latest = incomingMs >= currentMs ? incoming : current;
+  if (latest.active) {
+    return {
+      active: true,
+      reason: latest.reason,
+      updatedAt: latest.updatedAt || new Date().toISOString(),
+      sticky: Boolean(latest.sticky),
+    };
+  }
+
+  return {
+    active: false,
+    reason: latest.reason,
+    updatedAt: latest.updatedAt || new Date().toISOString(),
+    sticky: false,
+  };
+}
+
+function mergeState(next, options = {}) {
+  const { canAdminUnlockServicePause = false } = options;
   const current = readState();
   const incomingRequests = Array.isArray(next.requests) ? next.requests : [];
   const incomingDeleted = Array.isArray(next.deletedRequestIds)
@@ -351,12 +401,18 @@ function mergeState(next) {
   });
 
   const mergedRequests = [...requestMap.values()].filter((item) => !deletedSet.has(String(item.id)));
+  const mergedServicePause = mergeServicePause(
+    current.servicePause,
+    next.servicePause,
+    canAdminUnlockServicePause
+  );
 
   return writeState({
     ...current,
     ...next,
     requests: mergedRequests,
     deletedRequestIds: [...deletedSet],
+    servicePause: mergedServicePause,
   });
 }
 
@@ -923,7 +979,9 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
-      const saved = mergeState(payload);
+      const saved = mergeState(payload, {
+        canAdminUnlockServicePause: Boolean(getAdminAuth(req)),
+      });
       return sendJson(req, res, 200, saved);
     } catch (error) {
       return sendJson(req, res, 400, { error: "Invalid JSON payload" });

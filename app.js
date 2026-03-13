@@ -1062,6 +1062,7 @@ function applyRemoteState(remote) {
         active: Boolean(remote.servicePause.active),
         reason: String(remote.servicePause.reason || "").trim(),
         updatedAt: remote.servicePause.updatedAt || null,
+        sticky: Boolean(remote.servicePause.sticky),
       }
     : state.servicePause;
 
@@ -1384,12 +1385,12 @@ function savePartnerPresence() {
 
 function loadServicePause() {
   const raw = localStorage.getItem(SERVICE_PAUSE_KEY);
-  if (!raw) return { active: false, reason: "", updatedAt: null };
+  if (!raw) return { active: false, reason: "", updatedAt: null, sticky: false };
 
   try {
     return normalizeServicePauseState(JSON.parse(raw));
   } catch {
-    return { active: false, reason: "", updatedAt: null };
+    return { active: false, reason: "", updatedAt: null, sticky: false };
   }
 }
 
@@ -1399,6 +1400,7 @@ function normalizeServicePauseState(value) {
     active: Boolean(input.active),
     reason: String(input.reason || "").trim(),
     updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+    sticky: Boolean(input.sticky),
   };
 }
 
@@ -1414,11 +1416,16 @@ function mergeServicePauseState(localValue, remoteValue) {
   const remoteMs = getServicePauseTimeMs(remote);
 
   if (localMs === remoteMs) {
+    if (local.sticky && local.active && !remote.active) return local;
     if (local.active && !remote.active) return local;
     return remote;
   }
 
-  return remoteMs > localMs ? remote : local;
+  const latest = remoteMs > localMs ? remote : local;
+  if (local.sticky && local.active && !latest.active) {
+    return local;
+  }
+  return latest;
 }
 
 function saveServicePause() {
@@ -1492,9 +1499,9 @@ function renderServicePauseUI() {
 
   const isPaused = Boolean(state.servicePause?.active);
   const loginActor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
-  const isPartnerView = loginActor === "Sevgilin";
-  const enableStormMode = isPaused && isPartnerView;
-  const lockPartnerScreen = isPaused && isPartnerView;
+  const isOwnerView = loginActor === "Kalp Sorumlusu";
+  const enableStormMode = isPaused && !isOwnerView;
+  const lockPartnerScreen = isPaused && !isOwnerView;
 
   requestForm.classList.toggle("hidden", isPaused);
   servicePauseBanner.classList.toggle("hidden", !isPaused);
@@ -2684,6 +2691,8 @@ if (toggleServicePauseBtn) {
       active: nextActive,
       reason: String(state.servicePause?.reason || "").trim(),
       updatedAt: new Date().toISOString(),
+      sticky: nextActive,
+      allowDeactivate: !nextActive,
     };
 
     saveServicePause();
@@ -2717,6 +2726,7 @@ if (servicePauseMessageForm) {
       reason: nextMessage === DEFAULT_SERVICE_PAUSE_MESSAGE ? "" : nextMessage,
       updatedAt: new Date().toISOString(),
       active: Boolean(state.servicePause?.active),
+      sticky: Boolean(state.servicePause?.sticky),
     };
 
     saveServicePause();
@@ -2739,6 +2749,7 @@ if (servicePauseMessageResetBtn) {
       reason: "",
       updatedAt: new Date().toISOString(),
       active: Boolean(state.servicePause?.active),
+      sticky: Boolean(state.servicePause?.sticky),
     };
 
     saveServicePause();
