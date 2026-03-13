@@ -1155,9 +1155,11 @@ async function syncSessionsFromServer() {
 let remotePushTimer = null;
 let suppressRemotePush = false;
 let hasPendingRemoteChanges = false;
+let pendingRemoteSinceMs = 0;
 let hasHydratedRemoteState = false;
 let remoteHydrationPromise = null;
 let lastProtectiveRemotePushAt = 0;
+const REMOTE_PENDING_PULL_GUARD_MS = 15000;
 
 function notifyRemoteUnavailable(reason = "") {
   if (hasWarnedRemoteUnavailable) return;
@@ -1186,6 +1188,7 @@ function notifyRemoteUnavailable(reason = "") {
 function queueRemotePush() {
   if (suppressRemotePush || !remoteSyncEnabled || !hasHydratedRemoteState) return;
   hasPendingRemoteChanges = true;
+  if (!pendingRemoteSinceMs) pendingRemoteSinceMs = Date.now();
   if (remotePushTimer) clearTimeout(remotePushTimer);
   remotePushTimer = setTimeout(pushRemoteState, 250);
 }
@@ -1228,6 +1231,10 @@ async function pushRemoteState(options = {}) {
   if (!hasHydratedRemoteState && !force) return;
 
   try {
+    if (hasPendingRemoteChanges && !pendingRemoteSinceMs) {
+      pendingRemoteSinceMs = Date.now();
+    }
+
     const response = await fetch(REMOTE_STATE_ENDPOINT, {
       method: "PUT",
       headers: getApiHeaders({ "Content-Type": "application/json" }, "PUT"),
@@ -1244,6 +1251,7 @@ async function pushRemoteState(options = {}) {
     }
 
     hasPendingRemoteChanges = false;
+    pendingRemoteSinceMs = 0;
   } catch {
     if (SYNC_MODE === "auto") {
       remoteSyncEnabled = false;
@@ -1253,9 +1261,13 @@ async function pushRemoteState(options = {}) {
   }
 }
 
-async function pullRemoteState() {
+async function pullRemoteState(options = {}) {
+  const { force = false } = options;
   if (!remoteSyncEnabled) return;
-  if (hasPendingRemoteChanges) return;
+  if (hasPendingRemoteChanges) {
+    const pendingAge = pendingRemoteSinceMs ? Date.now() - pendingRemoteSinceMs : 0;
+    if (!force && pendingAge < REMOTE_PENDING_PULL_GUARD_MS) return;
+  }
 
   try {
     const response = await fetch(REMOTE_STATE_ENDPOINT, {
@@ -1272,6 +1284,9 @@ async function pullRemoteState() {
     }
 
     const remote = await response.json();
+    if (remote && typeof remote === "object") {
+      remote.servicePause = mergeServicePauseState(state.servicePause, remote.servicePause);
+    }
     applyRemoteState(remote);
     hasHydratedRemoteState = true;
   } catch {
@@ -1372,15 +1387,38 @@ function loadServicePause() {
   if (!raw) return { active: false, reason: "", updatedAt: null };
 
   try {
-    const parsed = JSON.parse(raw);
-    return {
-      active: Boolean(parsed.active),
-      reason: String(parsed.reason || "").trim(),
-      updatedAt: parsed.updatedAt || null,
-    };
+    return normalizeServicePauseState(JSON.parse(raw));
   } catch {
     return { active: false, reason: "", updatedAt: null };
   }
+}
+
+function normalizeServicePauseState(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    active: Boolean(input.active),
+    reason: String(input.reason || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+  };
+}
+
+function getServicePauseTimeMs(value) {
+  const stamp = new Date(value?.updatedAt || "").getTime();
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function mergeServicePauseState(localValue, remoteValue) {
+  const local = normalizeServicePauseState(localValue);
+  const remote = normalizeServicePauseState(remoteValue);
+  const localMs = getServicePauseTimeMs(local);
+  const remoteMs = getServicePauseTimeMs(remote);
+
+  if (localMs === remoteMs) {
+    if (local.active && !remote.active) return local;
+    return remote;
+  }
+
+  return remoteMs > localMs ? remote : local;
 }
 
 function saveServicePause() {
@@ -1456,11 +1494,13 @@ function renderServicePauseUI() {
   const loginActor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
   const isPartnerView = loginActor === "Sevgilin";
   const enableStormMode = isPaused && isPartnerView;
+  const lockPartnerScreen = isPaused && isPartnerView;
 
   requestForm.classList.toggle("hidden", isPaused);
   servicePauseBanner.classList.toggle("hidden", !isPaused);
 
   document.body.classList.toggle("is-storm-mode", enableStormMode);
+  document.body.classList.toggle("is-partner-service-locked", lockPartnerScreen);
   if (stormScene) {
     stormScene.classList.toggle("hidden", !enableStormMode);
   }
@@ -1477,8 +1517,7 @@ function renderServicePauseUI() {
     servicePauseMessage.textContent = getServicePauseMessage();
   }
 
-  
-if (toggleServicePauseBtn) {
+  if (toggleServicePauseBtn) {
     toggleServicePauseBtn.textContent = isPaused ? "Sinirli Modu Kapat" : "Sinirli Modu Aç";
   }
 
@@ -1787,7 +1826,7 @@ siteLoginForm.addEventListener("submit", async (event) => {
       addActivity("admin", "Kalp Sorumlusu site girişini yaptı.");
     }
 
-    await pullRemoteState();
+    await pullRemoteState({ force: true });
     renderServicePauseUI();
 
     addLoginLog(actor, "siteye giriş yaptı.");
@@ -2349,7 +2388,7 @@ async function restoreRequestsFromBackup() {
   }
 
   if (!backup.length) {
-    await pullRemoteState();
+    await pullRemoteState({ force: true });
     if (state.requests.length) {
       return {
         ok: true,
@@ -2381,7 +2420,7 @@ async function restoreRequestsFromBackup() {
 
 if (refreshRequestsBtn) {
   refreshRequestsBtn.addEventListener("click", async () => {
-    await pullRemoteState();
+    await pullRemoteState({ force: true });
     renderTrackList();
     renderAdminList();
     renderTrackNotifications();
@@ -2628,9 +2667,9 @@ if (verseResetBtn) {
 
 if (toggleServicePauseBtn) {
   toggleServicePauseBtn.addEventListener("click", async () => {
-    const nextActive = !Boolean(state.servicePause?.active);
-
     await syncBeforeMutation();
+
+    const nextActive = !Boolean(state.servicePause?.active);
 
     state.servicePause = {
       active: nextActive,

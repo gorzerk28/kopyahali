@@ -788,6 +788,15 @@ body.is-ezan-mode .topbar {
   display: none !important;
 }
 
+body.is-partner-service-locked #appShell {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.is-partner-service-locked #stormScene {
+  display: block;
+}
+
 .storm-scene {
   position: fixed;
   inset: 0;
