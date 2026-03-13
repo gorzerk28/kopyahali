@@ -46,6 +46,7 @@ const MIME = {
 
 function defaultState() {
   return {
+    stateVersion: 1,
     requests: [],
     deletedRequestIds: [],
     customNotifications: [],
@@ -70,6 +71,12 @@ function defaultState() {
     },
     updatedAt: new Date().toISOString(),
   };
+}
+
+function normalizeStateVersion(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.floor(parsed);
 }
 
 function ensureDataFolders() {
@@ -190,6 +197,7 @@ function readState() {
     return {
       ...defaultState(),
       ...parsed,
+      stateVersion: normalizeStateVersion(parsed.stateVersion),
       requests: Array.isArray(parsed.requests) ? parsed.requests : [],
       deletedRequestIds: Array.isArray(parsed.deletedRequestIds)
         ? parsed.deletedRequestIds.map((id) => String(id))
@@ -210,7 +218,7 @@ function readState() {
       servicePause:
         parsed.servicePause && typeof parsed.servicePause === "object"
           ? parsed.servicePause
-          : { active: false, reason: "", updatedAt: null },
+          : { active: false, reason: "", updatedAt: null, sticky: false },
     };
   } catch {
     if (restoreLatestBackupIfAny() || restoreStateFromLedgerIfAny()) {
@@ -220,6 +228,7 @@ function readState() {
         return {
           ...defaultState(),
           ...parsed,
+          stateVersion: normalizeStateVersion(parsed.stateVersion),
           requests: Array.isArray(parsed.requests) ? parsed.requests : [],
           deletedRequestIds: Array.isArray(parsed.deletedRequestIds)
             ? parsed.deletedRequestIds.map((id) => String(id))
@@ -240,7 +249,7 @@ function readState() {
           servicePause:
             parsed.servicePause && typeof parsed.servicePause === "object"
               ? parsed.servicePause
-              : { active: false, reason: "", updatedAt: null },
+              : { active: false, reason: "", updatedAt: null, sticky: false },
         };
       } catch {
         return defaultState();
@@ -252,6 +261,8 @@ function readState() {
 
 function writeState(next) {
   ensureStateFile();
+  const current = readState();
+  const currentVersion = normalizeStateVersion(current.stateVersion);
   const deletedSet = new Set(
     Array.isArray(next.deletedRequestIds) ? next.deletedRequestIds.map((id) => String(id)) : []
   );
@@ -290,6 +301,7 @@ function writeState(next) {
             sticky: Boolean(next.servicePause.sticky),
           }
         : { active: false, reason: "", updatedAt: null, sticky: false },
+    stateVersion: currentVersion + 1,
     updatedAt: new Date().toISOString(),
   };
   const rawSafe = JSON.stringify(safe, null, 2);
@@ -353,8 +365,18 @@ function mergeServicePause(currentValue, incomingValue, canAdminUnlock = false) 
 }
 
 function mergeState(next, options = {}) {
-  const { canAdminUnlockServicePause = false } = options;
+  const { canAdminUnlockServicePause = false, expectedStateVersion = null } = options;
   const current = readState();
+  if (Number.isFinite(expectedStateVersion)) {
+    const safeExpected = Math.floor(expectedStateVersion);
+    const safeCurrent = Math.floor(Number(current.stateVersion || 1));
+    if (safeExpected !== safeCurrent) {
+      return {
+        conflict: true,
+        current,
+      };
+    }
+  }
   const incomingRequests = Array.isArray(next.requests) ? next.requests : [];
   const incomingDeleted = Array.isArray(next.deletedRequestIds)
     ? next.deletedRequestIds.map((id) => String(id))
@@ -979,9 +1001,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
+      const expectedStateVersion = Number(payload.stateVersion);
       const saved = mergeState(payload, {
         canAdminUnlockServicePause: Boolean(getAdminAuth(req)),
+        expectedStateVersion: Number.isFinite(expectedStateVersion) ? expectedStateVersion : null,
       });
+      if (saved && saved.conflict) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          error: "State conflict detected. Please refresh and retry.",
+          code: "state_conflict",
+          current: saved.current,
+        });
+      }
       return sendJson(req, res, 200, saved);
     } catch (error) {
       return sendJson(req, res, 400, { error: "Invalid JSON payload" });

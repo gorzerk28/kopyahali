@@ -962,6 +962,7 @@ function getSerializableState(options = {}) {
     prayerTest: normalizePrayerTestState(state.prayerTest),
     partnerPresence: state.partnerPresence,
     servicePause: state.servicePause,
+    stateVersion: knownRemoteStateVersion,
   };
 
   if (mergedDeletedIds.length) {
@@ -1029,6 +1030,10 @@ function shouldProtectLocalRequestsOnRemotePull(remote) {
 
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
+  const remoteVersion = Number(remote.stateVersion);
+  if (Number.isFinite(remoteVersion) && remoteVersion > 0) {
+    knownRemoteStateVersion = Math.floor(remoteVersion);
+  }
   addDeletedRequestIds(Array.isArray(remote.deletedRequestIds) ? remote.deletedRequestIds : []);
 
   const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
@@ -1160,6 +1165,7 @@ let pendingRemoteSinceMs = 0;
 let hasHydratedRemoteState = false;
 let remoteHydrationPromise = null;
 let lastProtectiveRemotePushAt = 0;
+let knownRemoteStateVersion = 1;
 const REMOTE_PENDING_PULL_GUARD_MS = 15000;
 
 function notifyRemoteUnavailable(reason = "") {
@@ -1226,7 +1232,7 @@ async function syncBeforeMutation() {
 }
 
 async function pushRemoteState(options = {}) {
-  const { force = false, deletedRequestIds = [] } = options;
+  const { force = false, deletedRequestIds = [], retryOnConflict = true } = options;
 
   if (!remoteSyncEnabled) return;
   if (!hasHydratedRemoteState && !force) return;
@@ -1244,11 +1250,34 @@ async function pushRemoteState(options = {}) {
     });
 
     if (!response.ok) {
+      if (response.status === 409) {
+        const payload = await response.json().catch(() => ({}));
+        if (payload?.current && typeof payload.current === "object") {
+          applyRemoteState(payload.current);
+        }
+
+        if (retryOnConflict) {
+          await pushRemoteState({ force: true, deletedRequestIds, retryOnConflict: false });
+          return;
+        }
+
+        bellInfo.textContent = "Senkron çakışması tespit edildi. En güncel verilerle yeniden denendi.";
+        return;
+      }
+
       if (SYNC_MODE === "auto") {
         remoteSyncEnabled = false;
         notifyRemoteUnavailable();
       }
       return;
+    }
+
+    const saved = await response.json().catch(() => null);
+    if (saved && typeof saved === "object") {
+      const nextVersion = Number(saved.stateVersion);
+      if (Number.isFinite(nextVersion) && nextVersion > 0) {
+        knownRemoteStateVersion = Math.floor(nextVersion);
+      }
     }
 
     hasPendingRemoteChanges = false;
