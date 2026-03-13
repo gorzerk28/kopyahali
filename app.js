@@ -1590,30 +1590,9 @@ function filterOutDeletedRequests(items = []) {
 }
 
 function pruneRequestBackupsByDeletedIds() {
-  const deletedSet = new Set(getDeletedRequestIds());
-  if (!deletedSet.size) return;
-
-  const backup = loadRequestsBackup();
-  if (backup.length) {
-    localStorage.setItem(
-      REQUESTS_BACKUP_KEY,
-      JSON.stringify(backup.filter((item) => !deletedSet.has(String(item?.id))))
-    );
-  }
-
-  const history = loadRequestsBackupHistory();
-  if (!history.length) return;
-
-  const sanitizedHistory = history
-    .map((snapshot) => ({
-      ...snapshot,
-      requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(
-        (item) => !deletedSet.has(String(item?.id))
-      ),
-    }))
-    .filter((snapshot) => snapshot.requests.length);
-
-  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sanitizedHistory));
+  // Bilerek no-op:
+  // Silinmiş ID'lere göre yedekleri budamak geri yükleme güvenliğini bozuyordu.
+  // Yedekler, veri tutarsızlığı anında "son çare" olarak tam snapshot kalmalı.
 }
 
 function addDeletedRequestIds(ids = []) {
@@ -1625,6 +1604,19 @@ function addDeletedRequestIds(ids = []) {
   state.requests = filterOutDeletedRequests(state.requests);
   saveDeletedRequestIds();
   pruneRequestBackupsByDeletedIds();
+}
+
+function removeDeletedRequestIds(ids = []) {
+  const removeSet = new Set(normalizeDeletedRequestIds(ids));
+  if (!removeSet.size) return 0;
+
+  const current = getDeletedRequestIds();
+  const next = current.filter((id) => !removeSet.has(String(id)));
+  if (next.length === current.length) return 0;
+
+  deletedRequestIds = next;
+  saveDeletedRequestIds();
+  return current.length - next.length;
 }
 
 function loadRequests() {
@@ -2401,7 +2393,10 @@ async function restoreRequestsFromBackup() {
     };
   }
 
+  const backupIds = backup.map((item) => String(item?.id || "")).filter(Boolean);
+  const revivedDeletedCount = removeDeletedRequestIds(backupIds);
   const beforeCount = state.requests.length;
+
   state.requests = mergeRequestsPreferLatest(state.requests, backup);
   state.requests = filterOutDeletedRequests(state.requests);
   const afterCount = state.requests.length;
@@ -2411,11 +2406,25 @@ async function restoreRequestsFromBackup() {
   renderTrackNotifications();
 
   if (afterCount <= beforeCount) {
+    if (revivedDeletedCount > 0) {
+      await pushRemoteState({ force: true });
+      return {
+        ok: true,
+        message: `Silinmiş listesinde takılı kalan ${revivedDeletedCount} talep kimliği temizlendi. Yedekle veri tutarlılığı düzeltildi.`,
+      };
+    }
     return { ok: false, message: "Yedekte yeni bir talep bulunamadı." };
   }
 
   await pushRemoteState({ force: true });
-  return { ok: true, message: `${afterCount - beforeCount} talep yedekten geri yüklendi ve sunucuya gönderildi.` };
+  const restoredCount = afterCount - beforeCount;
+  const revivedInfo = revivedDeletedCount > 0
+    ? ` Ayrıca ${revivedDeletedCount} adet hatalı silinmiş kimlik kaydı temizlendi.`
+    : "";
+  return {
+    ok: true,
+    message: `${restoredCount} talep yedekten geri yüklendi ve sunucuya gönderildi.${revivedInfo}`,
+  };
 }
 
 if (refreshRequestsBtn) {
