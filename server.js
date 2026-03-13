@@ -63,6 +63,11 @@ function defaultState() {
       partnerOnline: false,
       updatedAt: null,
     },
+    moodStatus: {
+      value: "",
+      note: "",
+      updatedAt: null,
+    },
     servicePause: {
       active: false,
       reason: "",
@@ -215,6 +220,10 @@ function readState() {
         parsed.partnerPresence && typeof parsed.partnerPresence === "object"
           ? parsed.partnerPresence
           : { partnerOnline: false, updatedAt: null },
+      moodStatus:
+        parsed.moodStatus && typeof parsed.moodStatus === "object"
+          ? parsed.moodStatus
+          : { value: "", note: "", updatedAt: null },
       servicePause:
         parsed.servicePause && typeof parsed.servicePause === "object"
           ? parsed.servicePause
@@ -246,6 +255,10 @@ function readState() {
             parsed.partnerPresence && typeof parsed.partnerPresence === "object"
               ? parsed.partnerPresence
               : { partnerOnline: false, updatedAt: null },
+          moodStatus:
+            parsed.moodStatus && typeof parsed.moodStatus === "object"
+              ? parsed.moodStatus
+              : { value: "", note: "", updatedAt: null },
           servicePause:
             parsed.servicePause && typeof parsed.servicePause === "object"
               ? parsed.servicePause
@@ -292,6 +305,14 @@ function writeState(next) {
       next.partnerPresence && typeof next.partnerPresence === "object"
         ? next.partnerPresence
         : { partnerOnline: false, updatedAt: null },
+    moodStatus:
+      next.moodStatus && typeof next.moodStatus === "object"
+        ? {
+            value: String(next.moodStatus.value || "").trim(),
+            note: String(next.moodStatus.note || "").trim(),
+            updatedAt: next.moodStatus.updatedAt ? String(next.moodStatus.updatedAt) : null,
+          }
+        : { value: "", note: "", updatedAt: null },
     servicePause:
       next.servicePause && typeof next.servicePause === "object"
         ? {
@@ -364,6 +385,23 @@ function mergeServicePause(currentValue, incomingValue, canAdminUnlock = false) 
   };
 }
 
+function normalizeMoodStatus(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    value: String(input.value || "").trim(),
+    note: String(input.note || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+  };
+}
+
+function mergeMoodStatus(currentValue, incomingValue) {
+  const current = normalizeMoodStatus(currentValue);
+  const incoming = normalizeMoodStatus(incomingValue);
+  const currentMs = Date.parse(current.updatedAt || "") || 0;
+  const incomingMs = Date.parse(incoming.updatedAt || "") || 0;
+  return incomingMs >= currentMs ? incoming : current;
+}
+
 function mergeState(next, options = {}) {
   const { canAdminUnlockServicePause = false, expectedStateVersion = null } = options;
   const current = readState();
@@ -428,12 +466,14 @@ function mergeState(next, options = {}) {
     next.servicePause,
     canAdminUnlockServicePause
   );
+  const mergedMoodStatus = mergeMoodStatus(current.moodStatus, next.moodStatus);
 
   return writeState({
     ...current,
     ...next,
     requests: mergedRequests,
     deletedRequestIds: [...deletedSet],
+    moodStatus: mergedMoodStatus,
     servicePause: mergedServicePause,
   });
 }

@@ -1069,6 +1069,114 @@ h2 {
   box-shadow: 0 0 0 4px rgba(214, 74, 138, 0.12);
 }
 
+.mood-card {
+  margin-top: 14px;
+  border: 1px solid #f2d6e5;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #fff8fc 0%, #fff 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.mood-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.mood-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mood-choice {
+  border: 1px solid #f1d3e3;
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px 10px;
+  font-weight: 700;
+  color: #7a3f5f;
+  cursor: pointer;
+}
+
+.mood-choice.active {
+  border-color: transparent;
+  background: #d64a8a;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(214, 74, 138, 0.3);
+}
+
+.mood-form {
+  display: grid;
+  gap: 10px;
+}
+
+.mood-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.mood-admin-card {
+  border-color: #ebd7f8;
+  background: linear-gradient(180deg, #faf6ff 0%, #fff 100%);
+}
+
+.mood-burst {
+  position: fixed;
+  font-size: 18px;
+  opacity: 0;
+  animation: moodFloat 1650ms ease-out forwards;
+}
+
+@keyframes moodFloat {
+  0% {
+    transform: translateY(0) scale(0.75);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-170px) scale(1.25) rotate(14deg);
+    opacity: 0;
+  }
+}
+
+body.is-mood-sad {
+  background: radial-gradient(circle at 12% 8%, #e7f0ff 0, transparent 35%),
+    radial-gradient(circle at 82% 22%, #d8e6ff 0, transparent 32%), #f3f8ff;
+}
+
+body.is-mood-happy {
+  background: radial-gradient(circle at 12% 8%, #fff6c9 0, transparent 34%),
+    radial-gradient(circle at 84% 22%, #ffe6bb 0, transparent 35%), #fff7e8;
+}
+
+body.is-mood-cheerful {
+  background: radial-gradient(circle at 15% 10%, #ffe1f3 0, transparent 34%),
+    radial-gradient(circle at 86% 22%, #f0ddff 0, transparent 34%), #fff4fb;
+}
+
+body.is-mood-stressed {
+  background: radial-gradient(circle at 16% 10%, #ffe7ef 0, transparent 34%),
+    radial-gradient(circle at 84% 16%, #ede4ff 0, transparent 35%), #f8f4ff;
+}
+
+body.is-mood-tired {
+  background: radial-gradient(circle at 15% 10%, #f4efff 0, transparent 35%),
+    radial-gradient(circle at 85% 20%, #e7e2ff 0, transparent 36%), #f8f6ff;
+}
+
+body.is-mood-calm {
+  background: radial-gradient(circle at 12% 8%, #dff8f4 0, transparent 35%),
+    radial-gradient(circle at 85% 20%, #e6f9ef 0, transparent 35%), #f3fffb;
+}
+
 input,
 select,
 textarea {
@@ -1091,5 +1199,9 @@ textarea:focus {
 
   .card {
     border-radius: 14px;
+  }
+
+  .mood-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

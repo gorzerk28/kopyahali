@@ -124,6 +124,36 @@
             <p id="servicePauseMessage" class="service-pause-text"></p>
           </article>
 
+          <article class="mood-card" aria-live="polite">
+            <div class="mood-card-head">
+              <p class="eyebrow">🫶 Ruh Hali Durumu</p>
+              <p id="moodCurrentSummary" class="muted"></p>
+            </div>
+            <p class="muted">Talep oluşturmadan o anki modunu paylaşabilirsin. İstersen bana Telegram bildirimi de gelir.</p>
+            <div id="moodChoiceGrid" class="mood-grid">
+              <button type="button" class="mood-choice" data-mood="sad">😔 Üzgün</button>
+              <button type="button" class="mood-choice" data-mood="happy">🙂 Mutlu</button>
+              <button type="button" class="mood-choice" data-mood="cheerful">🤩 Neşeli</button>
+              <button type="button" class="mood-choice" data-mood="stressed">😤 Gergin</button>
+              <button type="button" class="mood-choice" data-mood="tired">😴 Yorgun</button>
+              <button type="button" class="mood-choice" data-mood="calm">😌 Huzurlu</button>
+            </div>
+            <form id="moodForm" class="mood-form">
+              <label>
+                Kısa Not (opsiyonel)
+                <textarea id="moodNoteInput" name="moodNote" rows="2" placeholder="İstersen o anki durumunu bir cümleyle yaz..."></textarea>
+              </label>
+              <label class="mood-checkbox-row">
+                <input id="moodNotifyTelegram" type="checkbox" name="notifyMood" checked />
+                Telegram bildirimi gönder
+              </label>
+              <div class="admin-actions">
+                <button id="saveMoodBtn" class="btn-primary" type="submit">Ruh Halimi Güncelle</button>
+                <p id="moodInfo" class="muted" aria-live="polite"></p>
+              </div>
+            </form>
+          </article>
+
           <form id="requestForm" class="form-grid">
             <label>
               Talep Başlığı
@@ -256,6 +286,13 @@
                 <button id="prayerAdminStopBtn" class="btn-danger" type="button">Testi Durdur ⏹️</button>
               </div>
               <p id="prayerAdminInfo" class="muted" aria-live="polite"></p>
+            </article>
+
+            <article class="card mood-admin-card">
+              <h2>💓 Partner Ruh Hali</h2>
+              <p id="adminMoodHeadline"><strong>Durum:</strong> Belirtilmedi</p>
+              <p id="adminMoodNote" class="muted">Not yok.</p>
+              <p id="adminMoodUpdatedAt" class="muted">Son güncelleme: -</p>
             </article>
 
             <article class="card">
