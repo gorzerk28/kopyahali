@@ -210,6 +210,8 @@ const moodCurrentSummary = document.getElementById("moodCurrentSummary");
 const adminMoodHeadline = document.getElementById("adminMoodHeadline");
 const adminMoodNote = document.getElementById("adminMoodNote");
 const adminMoodUpdatedAt = document.getElementById("adminMoodUpdatedAt");
+let moodDraftValue = "";
+let moodDraftDirty = false;
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -992,6 +994,25 @@ function normalizeMoodStatus(value) {
   };
 }
 
+function getMoodTimeMs(value) {
+  const stamp = new Date(value?.updatedAt || "").getTime();
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function mergeMoodStatusState(localValue, remoteValue) {
+  const local = normalizeMoodStatus(localValue);
+  const remote = normalizeMoodStatus(remoteValue);
+  const localMs = getMoodTimeMs(local);
+  const remoteMs = getMoodTimeMs(remote);
+
+  if (localMs === remoteMs) {
+    if (local.value && !remote.value) return local;
+    return remote;
+  }
+
+  return remoteMs > localMs ? remote : local;
+}
+
 function loadMoodStatus() {
   const raw = localStorage.getItem(MOOD_STATUS_KEY);
   if (!raw) return getDefaultMoodStatus();
@@ -1059,25 +1080,29 @@ function formatDateTime(iso) {
 function renderMoodStatusUI() {
   const normalized = normalizeMoodStatus(state.moodStatus);
   state.moodStatus = normalized;
-  const mood = getMoodOption(normalized.value);
+  const uiMoodValue = moodDraftDirty && getMoodOption(moodDraftValue) ? moodDraftValue : normalized.value;
+  const mood = getMoodOption(uiMoodValue);
 
   moodChoices.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.mood === normalized.value);
+    btn.classList.toggle("active", btn.dataset.mood === uiMoodValue);
   });
 
   if (moodCurrentSummary) {
     moodCurrentSummary.textContent = mood
-      ? `${mood.emoji} ${mood.label} • ${formatDateTime(normalized.updatedAt)}`
+      ? moodDraftDirty
+        ? `${mood.emoji} ${mood.label} seçildi • kaydetmeyi unutma`
+        : `${mood.emoji} ${mood.label} • ${formatDateTime(normalized.updatedAt)}`
       : "Henüz ruh hali seçilmedi.";
   }
 
-  if (moodNoteInput) {
+  if (moodNoteInput && document.activeElement !== moodNoteInput && !moodDraftDirty) {
     moodNoteInput.value = normalized.note || "";
   }
 
   if (adminMoodHeadline) {
-    adminMoodHeadline.innerHTML = mood
-      ? `<strong>Durum:</strong> ${mood.emoji} ${mood.label}`
+    const adminMood = getMoodOption(normalized.value);
+    adminMoodHeadline.innerHTML = adminMood
+      ? `<strong>Durum:</strong> ${adminMood.emoji} ${adminMood.label}`
       : "<strong>Durum:</strong> Belirtilmedi";
   }
 
@@ -1090,6 +1115,11 @@ function renderMoodStatusUI() {
   }
 
   applyMoodTheme();
+}
+
+function resetMoodDraft() {
+  moodDraftValue = "";
+  moodDraftDirty = false;
 }
 
 function buildOwnerTelegramMoodText(nextMoodStatus) {
@@ -1252,7 +1282,7 @@ function applyRemoteState(remote) {
         sticky: Boolean(remote.servicePause.sticky),
       }
     : state.servicePause;
-  state.moodStatus = normalizeMoodStatus(remote.moodStatus || state.moodStatus);
+  state.moodStatus = mergeMoodStatusState(state.moodStatus, remote.moodStatus);
 
   if (protectLocalRequests && remoteSyncEnabled) {
     const now = Date.now();
@@ -1995,6 +2025,7 @@ window.addEventListener("storage", () => {
   state.dailyMessages = loadDailyMessages();
   state.quranVerses = loadQuranVerses();
   state.moodStatus = loadMoodStatus();
+  resetMoodDraft();
   renderActivityTimeline();
   renderLoginLogs();
   renderDailyLoveMessage();
@@ -2683,10 +2714,8 @@ if (moodChoiceGrid) {
     const moodValue = String(btn.dataset.mood || "").trim();
     if (!getMoodOption(moodValue)) return;
 
-    state.moodStatus = {
-      ...normalizeMoodStatus(state.moodStatus),
-      value: moodValue,
-    };
+    moodDraftValue = moodValue;
+    moodDraftDirty = true;
     renderMoodStatusUI();
     playMoodBurst(moodValue);
   });
@@ -2696,8 +2725,9 @@ if (moodForm) {
   moodForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const current = normalizeMoodStatus(state.moodStatus);
-    if (!getMoodOption(current.value)) {
+    const committed = normalizeMoodStatus(state.moodStatus);
+    const selectedMood = getMoodOption(moodDraftValue) ? moodDraftValue : committed.value;
+    if (!getMoodOption(selectedMood)) {
       if (moodInfo) moodInfo.textContent = "Önce bir ruh hali seçmelisin.";
       return;
     }
@@ -2707,12 +2737,13 @@ if (moodForm) {
     const previous = normalizeMoodStatus(state.moodStatus);
     const note = String(moodNoteInput?.value || "").trim();
     const nextMoodStatus = {
-      value: current.value,
+      value: selectedMood,
       note,
       updatedAt: new Date().toISOString(),
     };
 
     state.moodStatus = nextMoodStatus;
+    resetMoodDraft();
     saveMoodStatus();
     await pushRemoteState({ force: true });
     renderMoodStatusUI();
@@ -3048,6 +3079,7 @@ renderDailyLoveMessage();
 renderLoveMilestone();
 renderDailyMessageEditor();
 renderVerseEditor();
+resetMoodDraft();
 renderMoodStatusUI();
 renderServicePauseUI();
 renderTrackNotifications();
