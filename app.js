@@ -210,6 +210,8 @@ const moodCurrentSummary = document.getElementById("moodCurrentSummary");
 const adminMoodHeadline = document.getElementById("adminMoodHeadline");
 const adminMoodNote = document.getElementById("adminMoodNote");
 const adminMoodUpdatedAt = document.getElementById("adminMoodUpdatedAt");
+const adminMoodTopHeadline = document.getElementById("adminMoodTopHeadline");
+const adminMoodTopMeta = document.getElementById("adminMoodTopMeta");
 let moodDraftValue = "";
 let moodDraftDirty = false;
 
@@ -1038,9 +1040,6 @@ function clearMoodThemeClasses() {
 
 function applyMoodTheme() {
   clearMoodThemeClasses();
-  const actor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
-  if (actor !== "Sevgilin") return;
-
   const mood = getMoodOption(state.moodStatus?.value || "");
   if (!mood?.themeClass) return;
   document.body.classList.add(mood.themeClass);
@@ -1106,12 +1105,23 @@ function renderMoodStatusUI() {
       : "<strong>Durum:</strong> Belirtilmedi";
   }
 
+  if (adminMoodTopHeadline) {
+    const adminMood = getMoodOption(normalized.value);
+    adminMoodTopHeadline.innerHTML = adminMood
+      ? `<strong>Partner Modu:</strong> ${adminMood.emoji} ${adminMood.label}`
+      : "<strong>Partner Modu:</strong> Belirtilmedi";
+  }
+
   if (adminMoodNote) {
     adminMoodNote.textContent = normalized.note || "Not yok.";
   }
 
   if (adminMoodUpdatedAt) {
     adminMoodUpdatedAt.textContent = `Son güncelleme: ${formatDateTime(normalized.updatedAt)}`;
+  }
+
+  if (adminMoodTopMeta) {
+    adminMoodTopMeta.textContent = `Son güncelleme: ${formatDateTime(normalized.updatedAt)}`;
   }
 
   applyMoodTheme();
