@@ -13,6 +13,7 @@ const REQUESTS_BACKUP_KEY = "kalp-postasi-requests-backup";
 const REQUESTS_BACKUP_HISTORY_KEY = "kalp-postasi-requests-backup-history";
 const DELETED_REQUEST_IDS_KEY = "kalp-postasi-deleted-request-ids";
 const QURAN_VERSES_KEY = "kalp-postasi-quran-verses";
+const MOOD_STATUS_KEY = "kalp-postasi-mood-status";
 
 const config = window.APP_CONFIG || {};
 const SYNC_MODE = (() => {
@@ -96,6 +97,15 @@ const EZAN_MODE_DURATION_MS = (4 * 60 + 5) * 1000;
 
 const RELATIONSHIP_START_DATE = "2023-03-20";
 
+const MOOD_OPTIONS = {
+  sad: { label: "Üzgün", emoji: "😔", themeClass: "is-mood-sad", burst: ["💙", "🫧", "🤍"] },
+  happy: { label: "Mutlu", emoji: "🙂", themeClass: "is-mood-happy", burst: ["💛", "✨", "🌼"] },
+  cheerful: { label: "Neşeli", emoji: "🤩", themeClass: "is-mood-cheerful", burst: ["🎉", "💖", "✨"] },
+  stressed: { label: "Gergin", emoji: "😤", themeClass: "is-mood-stressed", burst: ["⚡", "💨", "🫀"] },
+  tired: { label: "Yorgun", emoji: "😴", themeClass: "is-mood-tired", burst: ["🌙", "💤", "🤍"] },
+  calm: { label: "Huzurlu", emoji: "😌", themeClass: "is-mood-calm", burst: ["🕊️", "🤍", "🌿"] },
+};
+
 let deletedRequestIds = loadDeletedRequestIds();
 
 const state = {
@@ -108,6 +118,7 @@ const state = {
   prayerTest: loadPrayerTestState(),
   partnerPresence: loadPartnerPresence(),
   servicePause: loadServicePause(),
+  moodStatus: loadMoodStatus(),
   failedSiteAttempts: 0,
 };
 
@@ -189,6 +200,20 @@ const prayerAdminInfo = document.getElementById("prayerAdminInfo");
 const prayerAdminRefreshBtn = document.getElementById("prayerAdminRefreshBtn");
 const prayerAdminTestBtn = document.getElementById("prayerAdminTestBtn");
 const prayerAdminStopBtn = document.getElementById("prayerAdminStopBtn");
+const moodForm = document.getElementById("moodForm");
+const moodChoiceGrid = document.getElementById("moodChoiceGrid");
+const moodChoices = document.querySelectorAll(".mood-choice");
+const moodNoteInput = document.getElementById("moodNoteInput");
+const moodNotifyTelegram = document.getElementById("moodNotifyTelegram");
+const moodInfo = document.getElementById("moodInfo");
+const moodCurrentSummary = document.getElementById("moodCurrentSummary");
+const adminMoodHeadline = document.getElementById("adminMoodHeadline");
+const adminMoodNote = document.getElementById("adminMoodNote");
+const adminMoodUpdatedAt = document.getElementById("adminMoodUpdatedAt");
+const adminMoodTopHeadline = document.getElementById("adminMoodTopHeadline");
+const adminMoodTopMeta = document.getElementById("adminMoodTopMeta");
+let moodDraftValue = "";
+let moodDraftDirty = false;
 
 function setFirstAvailableImage(imgEl, candidates) {
   if (!imgEl) return;
@@ -948,6 +973,202 @@ function playCelebrationBurst(mode = "soft") {
   }
 }
 
+function getMoodOption(value) {
+  return MOOD_OPTIONS[value] || null;
+}
+
+function getDefaultMoodStatus() {
+  return {
+    value: "",
+    note: "",
+    updatedAt: null,
+  };
+}
+
+function normalizeMoodStatus(value) {
+  const input = value && typeof value === "object" ? value : {};
+  const moodValue = String(input.value || "").trim();
+  const hasMood = Boolean(getMoodOption(moodValue));
+  return {
+    value: hasMood ? moodValue : "",
+    note: String(input.note || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+  };
+}
+
+function getMoodTimeMs(value) {
+  const stamp = new Date(value?.updatedAt || "").getTime();
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function mergeMoodStatusState(localValue, remoteValue) {
+  const local = normalizeMoodStatus(localValue);
+  const remote = normalizeMoodStatus(remoteValue);
+  const localMs = getMoodTimeMs(local);
+  const remoteMs = getMoodTimeMs(remote);
+
+  if (localMs === remoteMs) {
+    if (local.value && !remote.value) return local;
+    return remote;
+  }
+
+  return remoteMs > localMs ? remote : local;
+}
+
+function loadMoodStatus() {
+  const raw = localStorage.getItem(MOOD_STATUS_KEY);
+  if (!raw) return getDefaultMoodStatus();
+
+  try {
+    return normalizeMoodStatus(JSON.parse(raw));
+  } catch {
+    return getDefaultMoodStatus();
+  }
+}
+
+function saveMoodStatus() {
+  state.moodStatus = normalizeMoodStatus(state.moodStatus);
+  localStorage.setItem(MOOD_STATUS_KEY, JSON.stringify(state.moodStatus));
+  queueRemotePush();
+}
+
+function clearMoodThemeClasses() {
+  Object.values(MOOD_OPTIONS).forEach((option) => {
+    document.body.classList.remove(option.themeClass);
+  });
+}
+
+function applyMoodTheme() {
+  clearMoodThemeClasses();
+  const mood = getMoodOption(state.moodStatus?.value || "");
+  if (!mood?.themeClass) return;
+  document.body.classList.add(mood.themeClass);
+}
+
+function playMoodBurst(moodValue) {
+  if (!loveBurstLayer) return;
+  const mood = getMoodOption(moodValue);
+  if (!mood) return;
+
+  const particles = mood.burst;
+  for (let i = 0; i < 16; i += 1) {
+    const spark = document.createElement("span");
+    spark.className = "mood-burst";
+    spark.textContent = particles[i % particles.length];
+    spark.style.left = `${16 + Math.random() * 68}%`;
+    spark.style.top = `${58 + Math.random() * 22}%`;
+    spark.style.animationDelay = `${Math.random() * 130}ms`;
+    loveBurstLayer.appendChild(spark);
+    setTimeout(() => spark.remove(), 1800);
+  }
+}
+
+function formatDateTime(iso) {
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderMoodStatusUI() {
+  const normalized = normalizeMoodStatus(state.moodStatus);
+  state.moodStatus = normalized;
+  const uiMoodValue = moodDraftDirty && getMoodOption(moodDraftValue) ? moodDraftValue : normalized.value;
+  const mood = getMoodOption(uiMoodValue);
+
+  moodChoices.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mood === uiMoodValue);
+  });
+
+  if (moodCurrentSummary) {
+    moodCurrentSummary.textContent = mood
+      ? moodDraftDirty
+        ? `${mood.emoji} ${mood.label} seçildi • kaydetmeyi unutma`
+        : `${mood.emoji} ${mood.label} • ${formatDateTime(normalized.updatedAt)}`
+      : "Henüz ruh hali seçilmedi.";
+  }
+
+  if (moodNoteInput && document.activeElement !== moodNoteInput && !moodDraftDirty) {
+    moodNoteInput.value = normalized.note || "";
+  }
+
+  if (adminMoodHeadline) {
+    const adminMood = getMoodOption(normalized.value);
+    adminMoodHeadline.innerHTML = adminMood
+      ? `<strong>Durum:</strong> ${adminMood.emoji} ${adminMood.label}`
+      : "<strong>Durum:</strong> Belirtilmedi";
+  }
+
+  if (adminMoodTopHeadline) {
+    const adminMood = getMoodOption(normalized.value);
+    adminMoodTopHeadline.innerHTML = adminMood
+      ? `<strong>Partner Modu:</strong> ${adminMood.emoji} ${adminMood.label}`
+      : "<strong>Partner Modu:</strong> Belirtilmedi";
+  }
+
+  if (adminMoodNote) {
+    adminMoodNote.textContent = normalized.note || "Not yok.";
+  }
+
+  if (adminMoodUpdatedAt) {
+    adminMoodUpdatedAt.textContent = `Son güncelleme: ${formatDateTime(normalized.updatedAt)}`;
+  }
+
+  if (adminMoodTopMeta) {
+    adminMoodTopMeta.textContent = `Son güncelleme: ${formatDateTime(normalized.updatedAt)}`;
+  }
+
+  applyMoodTheme();
+}
+
+function resetMoodDraft() {
+  moodDraftValue = "";
+  moodDraftDirty = false;
+}
+
+function buildOwnerTelegramMoodText(nextMoodStatus) {
+  const mood = getMoodOption(nextMoodStatus.value);
+  if (!mood) return "";
+  return [
+    "💬 Ruh Hali Güncellendi",
+    `Durum: ${mood.emoji} ${mood.label}`,
+    `Not: ${nextMoodStatus.note || "Not yok."}`,
+    `Saat: ${formatDateTime(nextMoodStatus.updatedAt)}`,
+  ].join("\n");
+}
+
+async function notifyOwnerOnMoodUpdate(nextMoodStatus) {
+  const text = buildOwnerTelegramMoodText(nextMoodStatus);
+  if (!text) return { ok: false, message: "Ruh hali seçimi bulunamadı." };
+
+  try {
+    const response = await fetch(NOTIFY_ENDPOINT, {
+      method: "POST",
+      headers: getApiHeaders({ "Content-Type": "application/json" }, "POST"),
+      credentials: REMOTE_FETCH_CREDENTIALS,
+      body: JSON.stringify({
+        channel: "telegram",
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return { ok: false, message: payload.hint || payload.error || "Telegram bildirimi başarısız." };
+    }
+
+    return { ok: true, message: "Ruh hali Telegram bildirimi gönderildi." };
+  } catch {
+    return { ok: false, message: "Telegram servisine bağlanılamadı." };
+  }
+}
+
 function getSerializableState(options = {}) {
   const { deletedRequestIds = [] } = options;
   const mergedDeletedIds = normalizeDeletedRequestIds([...deletedRequestIds, ...getDeletedRequestIds()]);
@@ -962,6 +1183,8 @@ function getSerializableState(options = {}) {
     prayerTest: normalizePrayerTestState(state.prayerTest),
     partnerPresence: state.partnerPresence,
     servicePause: state.servicePause,
+    moodStatus: normalizeMoodStatus(state.moodStatus),
+    stateVersion: knownRemoteStateVersion,
   };
 
   if (mergedDeletedIds.length) {
@@ -1029,6 +1252,10 @@ function shouldProtectLocalRequestsOnRemotePull(remote) {
 
 function applyRemoteState(remote) {
   if (!remote || typeof remote !== "object") return;
+  const remoteVersion = Number(remote.stateVersion);
+  if (Number.isFinite(remoteVersion) && remoteVersion > 0) {
+    knownRemoteStateVersion = Math.floor(remoteVersion);
+  }
   addDeletedRequestIds(Array.isArray(remote.deletedRequestIds) ? remote.deletedRequestIds : []);
 
   const protectLocalRequests = shouldProtectLocalRequestsOnRemotePull(remote);
@@ -1062,8 +1289,10 @@ function applyRemoteState(remote) {
         active: Boolean(remote.servicePause.active),
         reason: String(remote.servicePause.reason || "").trim(),
         updatedAt: remote.servicePause.updatedAt || null,
+        sticky: Boolean(remote.servicePause.sticky),
       }
     : state.servicePause;
+  state.moodStatus = mergeMoodStatusState(state.moodStatus, remote.moodStatus);
 
   if (protectLocalRequests && remoteSyncEnabled) {
     const now = Date.now();
@@ -1084,6 +1313,7 @@ function applyRemoteState(remote) {
   savePrayerTestState();
   savePartnerPresence();
   saveServicePause();
+  saveMoodStatus();
   suppressRemotePush = false;
 
   renderTrackNotifications();
@@ -1097,6 +1327,7 @@ function applyRemoteState(remote) {
   renderDailyMessageEditor();
   renderVerseEditor();
   renderServicePauseUI();
+  renderMoodStatusUI();
   tickPrayerMode();
 }
 
@@ -1159,6 +1390,7 @@ let pendingRemoteSinceMs = 0;
 let hasHydratedRemoteState = false;
 let remoteHydrationPromise = null;
 let lastProtectiveRemotePushAt = 0;
+let knownRemoteStateVersion = 1;
 const REMOTE_PENDING_PULL_GUARD_MS = 15000;
 
 function notifyRemoteUnavailable(reason = "") {
@@ -1225,7 +1457,7 @@ async function syncBeforeMutation() {
 }
 
 async function pushRemoteState(options = {}) {
-  const { force = false, deletedRequestIds = [] } = options;
+  const { force = false, deletedRequestIds = [], retryOnConflict = true } = options;
 
   if (!remoteSyncEnabled) return;
   if (!hasHydratedRemoteState && !force) return;
@@ -1243,11 +1475,34 @@ async function pushRemoteState(options = {}) {
     });
 
     if (!response.ok) {
+      if (response.status === 409) {
+        const payload = await response.json().catch(() => ({}));
+        if (payload?.current && typeof payload.current === "object") {
+          applyRemoteState(payload.current);
+        }
+
+        if (retryOnConflict) {
+          await pushRemoteState({ force: true, deletedRequestIds, retryOnConflict: false });
+          return;
+        }
+
+        bellInfo.textContent = "Senkron çakışması tespit edildi. En güncel verilerle yeniden denendi.";
+        return;
+      }
+
       if (SYNC_MODE === "auto") {
         remoteSyncEnabled = false;
         notifyRemoteUnavailable();
       }
       return;
+    }
+
+    const saved = await response.json().catch(() => null);
+    if (saved && typeof saved === "object") {
+      const nextVersion = Number(saved.stateVersion);
+      if (Number.isFinite(nextVersion) && nextVersion > 0) {
+        knownRemoteStateVersion = Math.floor(nextVersion);
+      }
     }
 
     hasPendingRemoteChanges = false;
@@ -1384,12 +1639,12 @@ function savePartnerPresence() {
 
 function loadServicePause() {
   const raw = localStorage.getItem(SERVICE_PAUSE_KEY);
-  if (!raw) return { active: false, reason: "", updatedAt: null };
+  if (!raw) return { active: false, reason: "", updatedAt: null, sticky: false };
 
   try {
     return normalizeServicePauseState(JSON.parse(raw));
   } catch {
-    return { active: false, reason: "", updatedAt: null };
+    return { active: false, reason: "", updatedAt: null, sticky: false };
   }
 }
 
@@ -1399,6 +1654,7 @@ function normalizeServicePauseState(value) {
     active: Boolean(input.active),
     reason: String(input.reason || "").trim(),
     updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+    sticky: Boolean(input.sticky),
   };
 }
 
@@ -1414,11 +1670,16 @@ function mergeServicePauseState(localValue, remoteValue) {
   const remoteMs = getServicePauseTimeMs(remote);
 
   if (localMs === remoteMs) {
+    if (local.sticky && local.active && !remote.active) return local;
     if (local.active && !remote.active) return local;
     return remote;
   }
 
-  return remoteMs > localMs ? remote : local;
+  const latest = remoteMs > localMs ? remote : local;
+  if (local.sticky && local.active && !latest.active) {
+    return local;
+  }
+  return latest;
 }
 
 function saveServicePause() {
@@ -1492,9 +1753,9 @@ function renderServicePauseUI() {
 
   const isPaused = Boolean(state.servicePause?.active);
   const loginActor = sessionStorage.getItem(SITE_LOGIN_ACTOR_KEY);
-  const isPartnerView = loginActor === "Sevgilin";
-  const enableStormMode = isPaused && isPartnerView;
-  const lockPartnerScreen = isPaused && isPartnerView;
+  const isOwnerView = loginActor === "Kalp Sorumlusu";
+  const enableStormMode = isPaused && !isOwnerView;
+  const lockPartnerScreen = isPaused && !isOwnerView;
 
   requestForm.classList.toggle("hidden", isPaused);
   servicePauseBanner.classList.toggle("hidden", !isPaused);
@@ -1590,30 +1851,9 @@ function filterOutDeletedRequests(items = []) {
 }
 
 function pruneRequestBackupsByDeletedIds() {
-  const deletedSet = new Set(getDeletedRequestIds());
-  if (!deletedSet.size) return;
-
-  const backup = loadRequestsBackup();
-  if (backup.length) {
-    localStorage.setItem(
-      REQUESTS_BACKUP_KEY,
-      JSON.stringify(backup.filter((item) => !deletedSet.has(String(item?.id))))
-    );
-  }
-
-  const history = loadRequestsBackupHistory();
-  if (!history.length) return;
-
-  const sanitizedHistory = history
-    .map((snapshot) => ({
-      ...snapshot,
-      requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(
-        (item) => !deletedSet.has(String(item?.id))
-      ),
-    }))
-    .filter((snapshot) => snapshot.requests.length);
-
-  localStorage.setItem(REQUESTS_BACKUP_HISTORY_KEY, JSON.stringify(sanitizedHistory));
+  // Bilerek no-op:
+  // Silinmiş ID'lere göre yedekleri budamak geri yükleme güvenliğini bozuyordu.
+  // Yedekler, veri tutarsızlığı anında "son çare" olarak tam snapshot kalmalı.
 }
 
 function addDeletedRequestIds(ids = []) {
@@ -1625,6 +1865,19 @@ function addDeletedRequestIds(ids = []) {
   state.requests = filterOutDeletedRequests(state.requests);
   saveDeletedRequestIds();
   pruneRequestBackupsByDeletedIds();
+}
+
+function removeDeletedRequestIds(ids = []) {
+  const removeSet = new Set(normalizeDeletedRequestIds(ids));
+  if (!removeSet.size) return 0;
+
+  const current = getDeletedRequestIds();
+  const next = current.filter((id) => !removeSet.has(String(id)));
+  if (next.length === current.length) return 0;
+
+  deletedRequestIds = next;
+  saveDeletedRequestIds();
+  return current.length - next.length;
 }
 
 function loadRequests() {
@@ -1757,6 +2010,7 @@ function setSiteSession(isActive) {
   updatePresenceHeartbeat();
   renderPresenceBadge();
   renderServicePauseUI();
+  applyMoodTheme();
 }
 
 function activateTab(tabId) {
@@ -1780,11 +2034,14 @@ window.addEventListener("storage", () => {
   state.loginLogs = loadLoginLogs();
   state.dailyMessages = loadDailyMessages();
   state.quranVerses = loadQuranVerses();
+  state.moodStatus = loadMoodStatus();
+  resetMoodDraft();
   renderActivityTimeline();
   renderLoginLogs();
   renderDailyLoveMessage();
   renderDailyMessageEditor();
   renderVerseEditor();
+  renderMoodStatusUI();
 });
 
 siteLoginForm.addEventListener("submit", async (event) => {
@@ -2401,7 +2658,10 @@ async function restoreRequestsFromBackup() {
     };
   }
 
+  const backupIds = backup.map((item) => String(item?.id || "")).filter(Boolean);
+  const revivedDeletedCount = removeDeletedRequestIds(backupIds);
   const beforeCount = state.requests.length;
+
   state.requests = mergeRequestsPreferLatest(state.requests, backup);
   state.requests = filterOutDeletedRequests(state.requests);
   const afterCount = state.requests.length;
@@ -2411,11 +2671,25 @@ async function restoreRequestsFromBackup() {
   renderTrackNotifications();
 
   if (afterCount <= beforeCount) {
+    if (revivedDeletedCount > 0) {
+      await pushRemoteState({ force: true });
+      return {
+        ok: true,
+        message: `Silinmiş listesinde takılı kalan ${revivedDeletedCount} talep kimliği temizlendi. Yedekle veri tutarlılığı düzeltildi.`,
+      };
+    }
     return { ok: false, message: "Yedekte yeni bir talep bulunamadı." };
   }
 
   await pushRemoteState({ force: true });
-  return { ok: true, message: `${afterCount - beforeCount} talep yedekten geri yüklendi ve sunucuya gönderildi.` };
+  const restoredCount = afterCount - beforeCount;
+  const revivedInfo = revivedDeletedCount > 0
+    ? ` Ayrıca ${revivedDeletedCount} adet hatalı silinmiş kimlik kaydı temizlendi.`
+    : "";
+  return {
+    ok: true,
+    message: `${restoredCount} talep yedekten geri yüklendi ve sunucuya gönderildi.${revivedInfo}`,
+  };
 }
 
 if (refreshRequestsBtn) {
@@ -2439,6 +2713,70 @@ if (restoreRequestsBtn) {
     if (result.ok) {
       addActivity("admin", "Yedekten talep geri yükleme işlemi çalıştırıldı.");
       playCelebrationBurst("soft");
+    }
+  });
+}
+
+if (moodChoiceGrid) {
+  moodChoiceGrid.addEventListener("click", (event) => {
+    const btn = event.target.closest(".mood-choice");
+    if (!btn) return;
+    const moodValue = String(btn.dataset.mood || "").trim();
+    if (!getMoodOption(moodValue)) return;
+
+    moodDraftValue = moodValue;
+    moodDraftDirty = true;
+    renderMoodStatusUI();
+    playMoodBurst(moodValue);
+  });
+}
+
+if (moodForm) {
+  moodForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const committed = normalizeMoodStatus(state.moodStatus);
+    const selectedMood = getMoodOption(moodDraftValue) ? moodDraftValue : committed.value;
+    if (!getMoodOption(selectedMood)) {
+      if (moodInfo) moodInfo.textContent = "Önce bir ruh hali seçmelisin.";
+      return;
+    }
+
+    await syncBeforeMutation();
+
+    const previous = normalizeMoodStatus(state.moodStatus);
+    const note = String(moodNoteInput?.value || "").trim();
+    const nextMoodStatus = {
+      value: selectedMood,
+      note,
+      updatedAt: new Date().toISOString(),
+    };
+
+    state.moodStatus = nextMoodStatus;
+    resetMoodDraft();
+    saveMoodStatus();
+    await pushRemoteState({ force: true });
+    renderMoodStatusUI();
+
+    const mood = getMoodOption(nextMoodStatus.value);
+    addActivity("partner", `Ruh hali güncellendi: ${mood ? `${mood.emoji} ${mood.label}` : "Belirtilmedi"}`);
+
+    const changed =
+      previous.value !== nextMoodStatus.value ||
+      String(previous.note || "") !== String(nextMoodStatus.note || "");
+
+    if (moodNotifyTelegram?.checked && changed) {
+      const result = await notifyOwnerOnMoodUpdate(nextMoodStatus);
+      if (moodInfo) {
+        moodInfo.textContent = result.ok
+          ? "Ruh halin kaydedildi ve Telegram bildirimi gönderildi."
+          : `Ruh halin kaydedildi ama Telegram bildirimi gönderilemedi (${result.message}).`;
+      }
+      return;
+    }
+
+    if (moodInfo) {
+      moodInfo.textContent = "Ruh halin kaydedildi.";
     }
   });
 }
@@ -2675,6 +3013,8 @@ if (toggleServicePauseBtn) {
       active: nextActive,
       reason: String(state.servicePause?.reason || "").trim(),
       updatedAt: new Date().toISOString(),
+      sticky: nextActive,
+      allowDeactivate: !nextActive,
     };
 
     saveServicePause();
@@ -2708,6 +3048,7 @@ if (servicePauseMessageForm) {
       reason: nextMessage === DEFAULT_SERVICE_PAUSE_MESSAGE ? "" : nextMessage,
       updatedAt: new Date().toISOString(),
       active: Boolean(state.servicePause?.active),
+      sticky: Boolean(state.servicePause?.sticky),
     };
 
     saveServicePause();
@@ -2730,6 +3071,7 @@ if (servicePauseMessageResetBtn) {
       reason: "",
       updatedAt: new Date().toISOString(),
       active: Boolean(state.servicePause?.active),
+      sticky: Boolean(state.servicePause?.sticky),
     };
 
     saveServicePause();
@@ -2747,6 +3089,8 @@ renderDailyLoveMessage();
 renderLoveMilestone();
 renderDailyMessageEditor();
 renderVerseEditor();
+resetMoodDraft();
+renderMoodStatusUI();
 renderServicePauseUI();
 renderTrackNotifications();
 renderTrackList();
