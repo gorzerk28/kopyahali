@@ -46,6 +46,7 @@ const MIME = {
 
 function defaultState() {
   return {
+    stateVersion: 1,
     requests: [],
     deletedRequestIds: [],
     customNotifications: [],
@@ -62,13 +63,25 @@ function defaultState() {
       partnerOnline: false,
       updatedAt: null,
     },
+    moodStatus: {
+      value: "",
+      note: "",
+      updatedAt: null,
+    },
     servicePause: {
       active: false,
       reason: "",
       updatedAt: null,
+      sticky: false,
     },
     updatedAt: new Date().toISOString(),
   };
+}
+
+function normalizeStateVersion(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.floor(parsed);
 }
 
 function ensureDataFolders() {
@@ -189,6 +202,7 @@ function readState() {
     return {
       ...defaultState(),
       ...parsed,
+      stateVersion: normalizeStateVersion(parsed.stateVersion),
       requests: Array.isArray(parsed.requests) ? parsed.requests : [],
       deletedRequestIds: Array.isArray(parsed.deletedRequestIds)
         ? parsed.deletedRequestIds.map((id) => String(id))
@@ -206,10 +220,14 @@ function readState() {
         parsed.partnerPresence && typeof parsed.partnerPresence === "object"
           ? parsed.partnerPresence
           : { partnerOnline: false, updatedAt: null },
+      moodStatus:
+        parsed.moodStatus && typeof parsed.moodStatus === "object"
+          ? parsed.moodStatus
+          : { value: "", note: "", updatedAt: null },
       servicePause:
         parsed.servicePause && typeof parsed.servicePause === "object"
           ? parsed.servicePause
-          : { active: false, reason: "", updatedAt: null },
+          : { active: false, reason: "", updatedAt: null, sticky: false },
     };
   } catch {
     if (restoreLatestBackupIfAny() || restoreStateFromLedgerIfAny()) {
@@ -219,6 +237,7 @@ function readState() {
         return {
           ...defaultState(),
           ...parsed,
+          stateVersion: normalizeStateVersion(parsed.stateVersion),
           requests: Array.isArray(parsed.requests) ? parsed.requests : [],
           deletedRequestIds: Array.isArray(parsed.deletedRequestIds)
             ? parsed.deletedRequestIds.map((id) => String(id))
@@ -236,10 +255,14 @@ function readState() {
             parsed.partnerPresence && typeof parsed.partnerPresence === "object"
               ? parsed.partnerPresence
               : { partnerOnline: false, updatedAt: null },
+          moodStatus:
+            parsed.moodStatus && typeof parsed.moodStatus === "object"
+              ? parsed.moodStatus
+              : { value: "", note: "", updatedAt: null },
           servicePause:
             parsed.servicePause && typeof parsed.servicePause === "object"
               ? parsed.servicePause
-              : { active: false, reason: "", updatedAt: null },
+              : { active: false, reason: "", updatedAt: null, sticky: false },
         };
       } catch {
         return defaultState();
@@ -251,6 +274,8 @@ function readState() {
 
 function writeState(next) {
   ensureStateFile();
+  const current = readState();
+  const currentVersion = normalizeStateVersion(current.stateVersion);
   const deletedSet = new Set(
     Array.isArray(next.deletedRequestIds) ? next.deletedRequestIds.map((id) => String(id)) : []
   );
@@ -280,14 +305,24 @@ function writeState(next) {
       next.partnerPresence && typeof next.partnerPresence === "object"
         ? next.partnerPresence
         : { partnerOnline: false, updatedAt: null },
+    moodStatus:
+      next.moodStatus && typeof next.moodStatus === "object"
+        ? {
+            value: String(next.moodStatus.value || "").trim(),
+            note: String(next.moodStatus.note || "").trim(),
+            updatedAt: next.moodStatus.updatedAt ? String(next.moodStatus.updatedAt) : null,
+          }
+        : { value: "", note: "", updatedAt: null },
     servicePause:
       next.servicePause && typeof next.servicePause === "object"
         ? {
             active: Boolean(next.servicePause.active),
             reason: String(next.servicePause.reason || "").trim(),
             updatedAt: next.servicePause.updatedAt || new Date().toISOString(),
+            sticky: Boolean(next.servicePause.sticky),
           }
-        : { active: false, reason: "", updatedAt: null },
+        : { active: false, reason: "", updatedAt: null, sticky: false },
+    stateVersion: currentVersion + 1,
     updatedAt: new Date().toISOString(),
   };
   const rawSafe = JSON.stringify(safe, null, 2);
@@ -303,8 +338,83 @@ function getRequestRevision(item) {
   return Math.floor(parsed);
 }
 
-function mergeState(next) {
+function normalizeServicePause(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    active: Boolean(input.active),
+    reason: String(input.reason || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+    sticky: Boolean(input.sticky),
+    allowDeactivate: Boolean(input.allowDeactivate),
+  };
+}
+
+function mergeServicePause(currentValue, incomingValue, canAdminUnlock = false) {
+  const current = normalizeServicePause(currentValue);
+  const incoming = normalizeServicePause(incomingValue);
+  const currentMs = Date.parse(current.updatedAt || "") || 0;
+  const incomingMs = Date.parse(incoming.updatedAt || "") || 0;
+
+  // Sticky kilit aktifken yalnızca admin ve açık unlock sinyali kapatabilir.
+  if (current.active && current.sticky && !incoming.active) {
+    if (!canAdminUnlock || !incoming.allowDeactivate) {
+      return {
+        active: true,
+        reason: current.reason,
+        updatedAt: current.updatedAt || new Date().toISOString(),
+        sticky: true,
+      };
+    }
+  }
+
+  const latest = incomingMs >= currentMs ? incoming : current;
+  if (latest.active) {
+    return {
+      active: true,
+      reason: latest.reason,
+      updatedAt: latest.updatedAt || new Date().toISOString(),
+      sticky: Boolean(latest.sticky),
+    };
+  }
+
+  return {
+    active: false,
+    reason: latest.reason,
+    updatedAt: latest.updatedAt || new Date().toISOString(),
+    sticky: false,
+  };
+}
+
+function normalizeMoodStatus(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    value: String(input.value || "").trim(),
+    note: String(input.note || "").trim(),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null,
+  };
+}
+
+function mergeMoodStatus(currentValue, incomingValue) {
+  const current = normalizeMoodStatus(currentValue);
+  const incoming = normalizeMoodStatus(incomingValue);
+  const currentMs = Date.parse(current.updatedAt || "") || 0;
+  const incomingMs = Date.parse(incoming.updatedAt || "") || 0;
+  return incomingMs >= currentMs ? incoming : current;
+}
+
+function mergeState(next, options = {}) {
+  const { canAdminUnlockServicePause = false, expectedStateVersion = null } = options;
   const current = readState();
+  if (Number.isFinite(expectedStateVersion)) {
+    const safeExpected = Math.floor(expectedStateVersion);
+    const safeCurrent = Math.floor(Number(current.stateVersion || 1));
+    if (safeExpected !== safeCurrent) {
+      return {
+        conflict: true,
+        current,
+      };
+    }
+  }
   const incomingRequests = Array.isArray(next.requests) ? next.requests : [];
   const incomingDeleted = Array.isArray(next.deletedRequestIds)
     ? next.deletedRequestIds.map((id) => String(id))
@@ -351,12 +461,20 @@ function mergeState(next) {
   });
 
   const mergedRequests = [...requestMap.values()].filter((item) => !deletedSet.has(String(item.id)));
+  const mergedServicePause = mergeServicePause(
+    current.servicePause,
+    next.servicePause,
+    canAdminUnlockServicePause
+  );
+  const mergedMoodStatus = mergeMoodStatus(current.moodStatus, next.moodStatus);
 
   return writeState({
     ...current,
     ...next,
     requests: mergedRequests,
     deletedRequestIds: [...deletedSet],
+    moodStatus: mergedMoodStatus,
+    servicePause: mergedServicePause,
   });
 }
 
@@ -923,7 +1041,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
-      const saved = mergeState(payload);
+      const expectedStateVersion = Number(payload.stateVersion);
+      const saved = mergeState(payload, {
+        canAdminUnlockServicePause: Boolean(getAdminAuth(req)),
+        expectedStateVersion: Number.isFinite(expectedStateVersion) ? expectedStateVersion : null,
+      });
+      if (saved && saved.conflict) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          error: "State conflict detected. Please refresh and retry.",
+          code: "state_conflict",
+          current: saved.current,
+        });
+      }
       return sendJson(req, res, 200, saved);
     } catch (error) {
       return sendJson(req, res, 400, { error: "Invalid JSON payload" });
