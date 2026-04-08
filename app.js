@@ -1225,7 +1225,7 @@ async function syncBeforeMutation() {
 }
 
 async function pushRemoteState(options = {}) {
-  const { force = false, deletedRequestIds = [] } = options;
+  const { force = false, deletedRequestIds = [], allowAuthRetry = true } = options;
 
   if (!remoteSyncEnabled) return false;
   if (!hasHydratedRemoteState && !force) return false;
@@ -1243,6 +1243,10 @@ async function pushRemoteState(options = {}) {
     });
 
     if (!response.ok) {
+      if ((response.status === 401 || response.status === 403) && allowAuthRetry) {
+        await syncSessionsFromServer();
+        return pushRemoteState({ force, deletedRequestIds, allowAuthRetry: false });
+      }
       hasPendingRemoteChanges = true;
       if (!pendingRemoteSinceMs) pendingRemoteSinceMs = Date.now();
       if (SYNC_MODE === "auto") {
@@ -2539,14 +2543,9 @@ requestForm.addEventListener("submit", async (event) => {
   }
 
   addActivity("partner", `Yeni talep oluşturuldu: ${request.title}`);
-  if (remoteSyncEnabled && !remotePersisted) {
-    bellInfo.textContent =
-      "Talep sunucuya düşmediği için Telegram bildirimi gönderilmedi. Senkron tamamlanınca tekrar deneyebilirsin.";
-  } else {
-    const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
-    if (!ownerNotifyResult.ok) {
-      bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
-    }
+  const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
+  if (!ownerNotifyResult.ok) {
+    bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
   }
 
   renderTrackNotifications();
