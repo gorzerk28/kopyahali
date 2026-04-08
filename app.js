@@ -1227,8 +1227,8 @@ async function syncBeforeMutation() {
 async function pushRemoteState(options = {}) {
   const { force = false, deletedRequestIds = [] } = options;
 
-  if (!remoteSyncEnabled) return;
-  if (!hasHydratedRemoteState && !force) return;
+  if (!remoteSyncEnabled) return false;
+  if (!hasHydratedRemoteState && !force) return false;
 
   try {
     if (hasPendingRemoteChanges && !pendingRemoteSinceMs) {
@@ -1243,21 +1243,27 @@ async function pushRemoteState(options = {}) {
     });
 
     if (!response.ok) {
+      hasPendingRemoteChanges = true;
+      if (!pendingRemoteSinceMs) pendingRemoteSinceMs = Date.now();
       if (SYNC_MODE === "auto") {
         remoteSyncEnabled = false;
         notifyRemoteUnavailable();
       }
-      return;
+      return false;
     }
 
     hasPendingRemoteChanges = false;
     pendingRemoteSinceMs = 0;
+    return true;
   } catch {
+    hasPendingRemoteChanges = true;
+    if (!pendingRemoteSinceMs) pendingRemoteSinceMs = Date.now();
     if (SYNC_MODE === "auto") {
       remoteSyncEnabled = false;
       notifyRemoteUnavailable();
     }
     // Remote API unavailable: continue with local state.
+    return false;
   }
 }
 
@@ -2522,15 +2528,25 @@ requestForm.addEventListener("submit", async (event) => {
 
   state.requests.push(request);
   saveRequests();
-  await pushRemoteState({ force: true });
+  const remotePersisted = remoteSyncEnabled ? await pushRemoteState({ force: true }) : true;
 
   requestForm.reset();
-  formInfo.textContent = "Talebin başarıyla gönderildi! Talep Takip sekmesinden durumu izleyebilirsin.";
+  if (remoteSyncEnabled && !remotePersisted) {
+    formInfo.textContent =
+      "Talebin yerel olarak kaydedildi ama sunucuya senkronlanamadı. İnternet/sunucu düzeldiğinde otomatik tekrar denenecek.";
+  } else {
+    formInfo.textContent = "Talebin başarıyla gönderildi! Talep Takip sekmesinden durumu izleyebilirsin.";
+  }
 
   addActivity("partner", `Yeni talep oluşturuldu: ${request.title}`);
-  const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
-  if (!ownerNotifyResult.ok) {
-    bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
+  if (remoteSyncEnabled && !remotePersisted) {
+    bellInfo.textContent =
+      "Talep sunucuya düşmediği için Telegram bildirimi gönderilmedi. Senkron tamamlanınca tekrar deneyebilirsin.";
+  } else {
+    const ownerNotifyResult = await notifyOwnerOnNewRequest(request);
+    if (!ownerNotifyResult.ok) {
+      bellInfo.textContent = `Yeni talep alındı ancak yönetici bildirimi gönderilemedi (${ownerNotifyResult.message})`;
+    }
   }
 
   renderTrackNotifications();
